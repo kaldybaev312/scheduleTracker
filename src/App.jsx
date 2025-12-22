@@ -5,7 +5,7 @@ function App() {
   const [subjects, setSubjects] = useState(() => JSON.parse(localStorage.getItem('subjects')) || []);
   const [groups, setGroups] = useState(() => JSON.parse(localStorage.getItem('groups')) || ["Группа 1"]);
   const [records, setRecords] = useState([]);
-  const [templates, setTemplates] = useState([]); // Шаблоны из БД
+  const [templates, setTemplates] = useState([]);
   
   const [activeGroup, setActiveGroup] = useState(groups[0]);
   const [darkMode, setDarkMode] = useState(true);
@@ -59,14 +59,14 @@ function App() {
   };
 
   const applyTemplate = async () => {
-    const dateObj = new Date(selectedDate);
+    const dateObj = new Date(selectedDate + "T12:00:00");
     let dayOfWeek = dateObj.getDay(); 
-    if (dayOfWeek === 0) dayOfWeek = 7; // Вс = 7
+    if (dayOfWeek === 0) dayOfWeek = 7;
 
     const dayTemplates = templates.filter(t => t.dayOfWeek === dayOfWeek);
     
     if (dayTemplates.length === 0) {
-      alert("Для этого дня недели (Пн-Вс) шаблоны не настроены!");
+      alert("Для этого дня недели шаблоны не настроены!");
       return;
     }
 
@@ -84,7 +84,7 @@ function App() {
         })
       });
     }
-    fetchData(); // Перезагружаем список
+    fetchData();
   };
 
   // --- ОБЩИЕ ФУНКЦИИ ---
@@ -112,7 +112,8 @@ function App() {
   const calendarDays = (() => {
     const year = viewDate.getFullYear();
     const month = viewDate.getMonth();
-    const offset = new Date(year, month, 1).getDay() === 0 ? 6 : new Date(year, month, 1).getDay() - 1;
+    const firstDay = new Date(year, month, 1).getDay();
+    const offset = firstDay === 0 ? 6 : firstDay - 1;
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const days = [];
     for (let i = 0; i < offset; i++) days.push(null);
@@ -140,8 +141,8 @@ function App() {
             </nav>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => setShowTemplateEditor(!showTemplateEditor)} className={`text-[10px] font-black px-4 py-2 rounded-xl uppercase transition-all ${showTemplateEditor ? 'bg-indigo-600' : 'bg-slate-700'}`}>
-              {showTemplateEditor ? 'Закрыть редактор' : '⚙️ Настроить шаблоны'}
+            <button onClick={() => setShowTemplateEditor(!showTemplateEditor)} className={`text-[10px] font-black px-4 py-2 rounded-xl uppercase transition-all ${showTemplateEditor ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300'}`}>
+              {showTemplateEditor ? 'Закрыть редактор' : '⚙️ Шаблоны'}
             </button>
             <button onClick={() => setDarkMode(!darkMode)} className="w-10 h-10 flex items-center justify-center bg-slate-800 rounded-xl border border-slate-700">{darkMode ? '☀️' : '🌙'}</button>
           </div>
@@ -150,7 +151,7 @@ function App() {
         {showTemplateEditor ? (
           /* РЕДАКТОР ШАБЛОНОВ */
           <div className={`p-8 rounded-[3rem] border-2 border-amber-500/30 mb-10 ${cardClass}`}>
-            <h2 className="text-2xl font-black text-amber-500 uppercase mb-6 flex items-center gap-2">🛠 Редактор шаблонов для {activeGroup}</h2>
+            <h2 className="text-2xl font-black text-amber-500 uppercase mb-6 flex items-center gap-2">🛠 Недельный план: {activeGroup}</h2>
             <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
               {[1,2,3,4,5,6,7].map(dayNum => (
                 <div key={dayNum} className="space-y-3">
@@ -164,9 +165,9 @@ function App() {
                         key={lessonNum}
                         value={temp?.subject || ""}
                         onChange={(e) => saveTemplate(dayNum, lessonNum, e.target.value)}
-                        className="w-full p-2 rounded-lg bg-slate-900 border border-slate-700 text-[10px] outline-none focus:border-amber-500"
+                        className="w-full p-2 rounded-lg bg-slate-900 border border-slate-700 text-[10px] outline-none focus:border-amber-500 text-white"
                       >
-                        <option value="">- Пара {lessonNum} -</option>
+                        <option value="">- {lessonNum} пара -</option>
                         {subjects.map(s => <option key={s} value={s}>{s}</option>)}
                       </select>
                     );
@@ -174,7 +175,6 @@ function App() {
                 </div>
               ))}
             </div>
-            <p className="mt-6 text-[10px] opacity-40 italic text-center text-amber-500">Изменения сохраняются автоматически в реальном времени</p>
           </div>
         ) : (
           /* ОСНОВНОЙ ЭКРАН */
@@ -187,12 +187,12 @@ function App() {
                     <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() - 1)))} className="w-8 h-8 flex bg-slate-700 rounded-lg justify-center items-center hover:bg-indigo-600 transition text-white">❮</button>
                     <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() + 1)))} className="w-8 h-8 flex bg-slate-700 rounded-lg justify-center items-center hover:bg-indigo-600 transition text-white">❯</button>
                   </div>
-                  <select value={viewDate.getMonth()} onChange={(e) => setViewDate(new Date(viewDate.setMonth(e.target.value)))} className="bg-transparent font-black uppercase text-[10px] outline-none text-indigo-400 cursor-pointer">
-                    {["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"].map((m, i) => <option key={m} value={i} className="text-black">{m}</option>)}
-                  </select>
+                  <span className="font-black uppercase text-[10px] text-indigo-400">
+                    {viewDate.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}
+                  </span>
                 </div>
                 <div className="grid grid-cols-7 gap-1 text-center text-[9px] font-black opacity-20 mb-4 tracking-tighter">
-                  <div>ПН</div><div>ВТ</div><div>СР</div><div>ЧТ</div><div>ПТ</div><div className="text-orange-500">СБ</div><div className="text-red-500">ВС</div>
+                  <div>ПН</div><div>ВТ</div><div>СР</div><div>ЧТ</div><div>ПТ</div><div>СБ</div><div>ВС</div>
                 </div>
                 <div className="grid grid-cols-7 gap-1.5">
                   {calendarDays.map((day, i) => {
@@ -201,7 +201,7 @@ function App() {
                     const hasLessons = records.some(r => r.date === dStr && r.group === activeGroup);
                     const isSelected = selectedDate === dStr;
                     return (
-                      <button key={dStr} onClick={() => {setSelectedDate(dStr); setFilterSubject(null);}} className={`h-10 rounded-xl text-xs font-bold transition-all border ${isSelected ? 'bg-indigo-600 border-indigo-400 shadow-lg scale-110 z-10 text-white' : dStr === todayStr ? 'border-indigo-500 text-indigo-400 border-2' : 'bg-slate-700/20 border-slate-700 hover:border-slate-500'}`}>
+                      <button key={dStr} onClick={() => {setSelectedDate(dStr); setFilterSubject(null);}} className={`h-10 rounded-xl text-xs font-bold transition-all border relative ${isSelected ? 'bg-indigo-600 border-indigo-400 shadow-lg scale-110 z-10 text-white' : dStr === todayStr ? 'border-indigo-500 text-indigo-400 border-2' : 'bg-slate-700/20 border-slate-700 hover:border-slate-500'}`}>
                         {day.getDate()}
                         {hasLessons && !isSelected && <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-1 h-1 bg-indigo-400 rounded-full"></div>}
                       </button>
@@ -213,11 +213,11 @@ function App() {
               {/* СТАТИСТИКА */}
               <div className={`p-6 rounded-[2rem] border ${cardClass}`}>
                 <h3 className="text-xs font-black opacity-40 uppercase mb-5 tracking-[0.2em]">📊 Статистика</h3>
-                <div className="grid gap-2 max-h-60 overflow-y-auto">
+                <div className="grid gap-2 max-h-60 overflow-y-auto pr-2">
                   {Object.entries(records.filter(r => r.group === activeGroup).reduce((acc, r) => {acc[r.subject] = (acc[r.subject] || 0) + 1; return acc;}, {})).sort((a,b)=>b[1]-a[1]).map(([sub, count]) => (
                     <button key={sub} onClick={() => setFilterSubject(sub === filterSubject ? null : sub)} className={`flex justify-between items-center p-3 rounded-2xl border transition-all ${filterSubject === sub ? 'bg-indigo-600 border-indigo-400' : 'bg-slate-900/40 border-slate-700/50 hover:bg-slate-700/50'}`}>
-                      <span className="text-[10px] font-bold uppercase">{sub}</span>
-                      <span className="text-[10px] font-black bg-indigo-600 text-white px-2 py-1 rounded-lg">{count}</span>
+                      <span className="text-[10px] font-bold uppercase text-left">{sub}</span>
+                      <span className="text-[10px] font-black bg-indigo-600 text-white px-2 py-1 rounded-lg ml-2">{count}</span>
                     </button>
                   ))}
                 </div>
@@ -229,7 +229,8 @@ function App() {
               <div className={`p-8 rounded-[3rem] border-2 border-indigo-500/20 ${cardClass}`}>
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-2xl font-black text-indigo-400 uppercase italic">
-                    {new Date(selectedDate).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', weekday: 'short' })}
+                    {/* Исправленная дата в заголовке */}
+                    {new Date(selectedDate + "T12:00:00").toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', weekday: 'short' })}
                   </h2>
                   <button onClick={applyTemplate} className="bg-amber-500 hover:bg-amber-600 text-[10px] font-black px-4 py-2 rounded-xl uppercase transition-all flex items-center gap-2 text-white">🪄 Магия шаблона</button>
                 </div>
@@ -273,7 +274,10 @@ function App() {
                           <div className="h-10 w-[1px] bg-slate-700"></div>
                           <div>
                             <button onClick={() => setFilterSubject(r.subject)} className="font-black text-xl uppercase tracking-tight hover:text-indigo-400 transition block text-left">{r.subject}</button>
-                            <div className="bg-slate-700/50 text-[10px] px-3 py-1 rounded-full font-bold text-slate-400 border border-slate-600/50 mt-1 inline-block">📅 {new Date(r.date).toLocaleDateString('ru-RU')}</div>
+                            {/* ИСПРАВЛЕННЫЙ ФОРМАТ ДАТЫ В КАРТОЧКЕ */}
+                            <div className="bg-slate-700/50 text-[10px] px-3 py-1 rounded-full font-bold text-slate-400 border border-slate-600/50 mt-1 inline-block">
+                              📅 {new Date(r.date + "T12:00:00").toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                            </div>
                           </div>
                         </div>
                         <button onClick={() => deleteRecord(r._id)} className="w-10 h-10 flex items-center justify-center rounded-full bg-red-500/10 text-red-500 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500 hover:text-white">✕</button>
