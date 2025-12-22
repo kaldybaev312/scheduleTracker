@@ -59,7 +59,9 @@ function App() {
   };
 
   const applyTemplate = async () => {
-    const dateObj = new Date(selectedDate + "T12:00:00");
+    // Безопасное получение дня недели без смещения часового пояса
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d);
     let dayOfWeek = dateObj.getDay(); 
     if (dayOfWeek === 0) dayOfWeek = 7;
 
@@ -107,6 +109,12 @@ function App() {
   const deleteRecord = async (id) => {
     await fetch(`/api/schedule?id=${id}`, { method: 'DELETE' });
     setRecords(records.filter(r => r._id !== id));
+  };
+
+  // Форматирование даты YYYY-MM-DD -> DD.MM.YYYY
+  const formatDate = (dateStr) => {
+    if (!dateStr) return "";
+    return dateStr.split('-').reverse().join('.');
   };
 
   const calendarDays = (() => {
@@ -229,8 +237,8 @@ function App() {
               <div className={`p-8 rounded-[3rem] border-2 border-indigo-500/20 ${cardClass}`}>
                 <div className="flex justify-between items-center mb-6">
                   <h2 className="text-2xl font-black text-indigo-400 uppercase italic">
-                    {/* Исправленная дата в заголовке */}
-                    {new Date(selectedDate + "T12:00:00").toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', weekday: 'short' })}
+                    {/* РУЧНОЕ ФОРМАТИРОВАНИЕ ДАТЫ */}
+                    {formatDate(selectedDate)}
                   </h2>
                   <button onClick={applyTemplate} className="bg-amber-500 hover:bg-amber-600 text-[10px] font-black px-4 py-2 rounded-xl uppercase transition-all flex items-center gap-2 text-white">🪄 Магия шаблона</button>
                 </div>
@@ -263,7 +271,13 @@ function App() {
                 </div>
 
                 <div className="grid gap-4">
-                  {records.filter(r => r.group === activeGroup && (filterSubject ? r.subject === filterSubject : r.date === selectedDate))
+                  {records.filter(r => {
+                    // ЖЕСТКАЯ ФИЛЬТРАЦИЯ ПО СТРОКАМ
+                    const isSameGroup = r.group === activeGroup;
+                    const isSameDate = r.date === selectedDate;
+                    const isSameSub = filterSubject ? r.subject === filterSubject : true;
+                    return isSameGroup && (filterSubject ? isSameSub : isSameDate);
+                  })
                     .map(r => (
                       <div key={r._id} className={`p-5 rounded-[2rem] border flex justify-between items-center group transition-all ${cardClass} border-l-[12px] border-l-indigo-600 hover:translate-x-2`}>
                         <div className="flex items-center gap-6">
@@ -274,9 +288,9 @@ function App() {
                           <div className="h-10 w-[1px] bg-slate-700"></div>
                           <div>
                             <button onClick={() => setFilterSubject(r.subject)} className="font-black text-xl uppercase tracking-tight hover:text-indigo-400 transition block text-left">{r.subject}</button>
-                            {/* ИСПРАВЛЕННЫЙ ФОРМАТ ДАТЫ В КАРТОЧКЕ */}
                             <div className="bg-slate-700/50 text-[10px] px-3 py-1 rounded-full font-bold text-slate-400 border border-slate-600/50 mt-1 inline-block">
-                              📅 {new Date(r.date + "T12:00:00").toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                              {/* РУЧНОЕ ФОРМАТИРОВАНИЕ ДАТЫ КАРТОЧКИ */}
+                              📅 {formatDate(r.date)}
                             </div>
                           </div>
                         </div>
