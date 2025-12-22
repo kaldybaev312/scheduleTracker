@@ -1,4 +1,4 @@
-import dbConnect from '../lib/mongodb';
+import dbConnect from '../lib/mongodb.js';
 import mongoose from 'mongoose';
 
 const RecordSchema = new mongoose.Schema({
