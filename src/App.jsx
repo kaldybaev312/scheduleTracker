@@ -3,8 +3,8 @@ import * as XLSX from 'xlsx';
 
 function App() {
   // --- СОСТОЯНИЯ ---
-  const [groups, setGroups] = useState(() => JSON.parse(localStorage.getItem('groups_v16')) || [{name: "Группа 1", totalStudents: 25}]);
-  const [subjects, setSubjects] = useState(() => JSON.parse(localStorage.getItem('subj_v16')) || []);
+  const [groups, setGroups] = useState(() => JSON.parse(localStorage.getItem('groups_v17')) || [{name: "Группа 1", totalStudents: 25}]);
+  const [subjects, setSubjects] = useState(() => JSON.parse(localStorage.getItem('subj_v17')) || []);
   const [records, setRecords] = useState([]);
   const [templates, setTemplates] = useState([]);
   
@@ -16,15 +16,8 @@ function App() {
   const [currentTab, setCurrentTab] = useState('schedule'); 
   const [historySubject, setHistorySubject] = useState(null);
 
-  // Форма записи
   const [form, setForm] = useState({ 
-    subject: '', 
-    lessonNumber: '', 
-    students: '', 
-    topic: '', 
-    notes: '', 
-    type: 'Лекция', 
-    hours: 2 
+    subject: '', lessonNumber: '', students: '', topic: '', notes: '', type: 'Лекция', hours: 2 
   });
   
   const [newGroup, setNewGroup] = useState({ name: '', total: '' });
@@ -36,18 +29,14 @@ function App() {
     setForm(prev => ({ 
       ...prev, 
       lessonNumber: existing.length + 1,
-      // При смене дня сбрасываем на Лекцию
-      type: 'Лекция',
-      hours: 2,
-      topic: '',
-      notes: ''
+      type: 'Лекция', hours: 2, topic: '', notes: ''
     }));
   }, [selectedDate, records, activeGroup]);
 
   // Сохранение
   useEffect(() => {
-    localStorage.setItem('groups_v16', JSON.stringify(groups));
-    localStorage.setItem('subj_v16', JSON.stringify(subjects));
+    localStorage.setItem('groups_v17', JSON.stringify(groups));
+    localStorage.setItem('subj_v17', JSON.stringify(subjects));
   }, [groups, subjects]);
 
   useEffect(() => { fetchData(); }, [activeGroup]);
@@ -62,32 +51,24 @@ function App() {
       const tData = await tempRes.json();
       setRecords(Array.isArray(rData) ? rData : []);
       setTemplates(Array.isArray(tData) ? tData : []);
-    } catch (err) { console.error("Error:", err); }
+    } catch (err) { console.error(err); }
     setLoading(false);
   }
 
-  // --- УМНАЯ АНАЛИТИКА (РАЗДЕЛЬНАЯ) ---
+  // --- АНАЛИТИКА (ГЛОБАЛЬНАЯ) ---
   const stats = useMemo(() => {
     const groupRecs = records.filter(r => r.group === activeGroup);
     
-    // Переменные для раздельного подсчета
-    let lecHours = 0;
-    let poHours = 0;
-    let ppHours = 0;
-    let totalHours = 0;
-
+    let lecHours = 0, poHours = 0, ppHours = 0, totalHours = 0;
     const subjH = {};
 
     groupRecs.forEach(r => {
         const h = parseInt(r.hours) || 2;
         totalHours += h;
-        
-        // Подсчет по типам
         if (r.type === 'ПО') poHours += h;
         else if (r.type === 'ПП') ppHours += h;
-        else lecHours += h; // Лекция и всё остальное
+        else lecHours += h;
 
-        // Подсчет по предметам
         subjH[r.subject] = (subjH[r.subject] || 0) + h;
     });
 
@@ -98,6 +79,15 @@ function App() {
     
     return { totalHours, lecHours, poHours, ppHours, attendance, subjectHours: subjH, count: groupRecs.length };
   }, [records, activeGroup, groups]);
+
+  // --- ПОДСЧЕТ ДЛЯ ИСТОРИИ (НОВОЕ) ---
+  // Считаем часы только для выбранного предмета в модальном окне
+  const historyStats = useMemo(() => {
+    if (!historySubject) return { count: 0, hours: 0 };
+    const subRecs = records.filter(r => r.subject === historySubject && r.group === activeGroup);
+    const h = subRecs.reduce((acc, r) => acc + (parseInt(r.hours) || 2), 0);
+    return { count: subRecs.length, hours: h };
+  }, [historySubject, records, activeGroup]);
 
   // --- ФУНКЦИИ ---
   const handleTypeSelect = (type, hours) => {
@@ -111,7 +101,6 @@ function App() {
     if(!dTemps.length) return alert("Шаблон пуст");
     
     for (const t of dTemps) {
-      // Шаблон создает Лекции (2 часа) по умолчанию
       await fetch('/api/schedule', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
@@ -149,7 +138,7 @@ function App() {
 
   const exportExcel = () => {
     const data = records.filter(r => r.group === activeGroup).map(r => ({
-      "Дата": r.date, "Пара": r.lessonNumber, "Тип": r.type, "Предмет": r.subject, "Тема": r.topic, "Заметки": r.notes, "Часы": r.hours, "Явка": r.studentsPresent
+      "Дата": r.date, "Пара": r.lessonNumber, "Тип": r.type, "Предмет": r.subject, "Тема": r.topic, "ДЗ": r.notes, "Часы": r.hours, "Явка": r.studentsPresent
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -170,7 +159,7 @@ function App() {
   const getTypeColor = (type) => {
     if (type === 'ПО') return 'border-l-emerald-500 shadow-emerald-900/10';
     if (type === 'ПП') return 'border-l-amber-500 shadow-amber-900/10';
-    return 'border-l-indigo-500 shadow-indigo-900/10'; // Лекция
+    return 'border-l-indigo-500 shadow-indigo-900/10'; 
   };
 
   const themeClass = darkMode ? "bg-[#0f172a] text-white" : "bg-gray-50 text-slate-900";
@@ -184,7 +173,7 @@ function App() {
         
         {/* HEADER */}
         <header className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 py-4 border-b border-indigo-500/20">
-          <h1 className="text-3xl font-black text-indigo-500 italic tracking-tighter">EDU.LOG <span className="text-[10px] not-italic text-slate-500">v16 Pro</span></h1>
+          <h1 className="text-3xl font-black text-indigo-500 italic tracking-tighter">EDU.LOG <span className="text-[10px] not-italic text-slate-500">v17 Final</span></h1>
           <nav className="flex bg-slate-800/50 p-1 rounded-xl w-full md:w-auto overflow-x-auto no-scrollbar">
             {['schedule', 'dashboard', 'settings'].map(t => (
               <button key={t} onClick={() => setCurrentTab(t)} className={`flex-1 md:flex-none px-6 py-2.5 rounded-lg text-[10px] font-black uppercase whitespace-nowrap transition-all ${currentTab === t ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500'}`}>
@@ -200,48 +189,37 @@ function App() {
           </div>
         </header>
 
-        {/* --- Вкладка: АНАЛИТИКА (РАЗДЕЛЬНАЯ) --- */}
+        {/* --- АНАЛИТИКА --- */}
         {currentTab === 'dashboard' && (
           <div className="space-y-6 animate-in fade-in duration-500">
-            {/* КАРТОЧКИ ПО ТИПАМ ЧАСОВ */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                <div className={`${cardClass} p-5 text-center rounded-[2rem] border-b-4 border-b-indigo-500`}>
                   <div className="text-[9px] opacity-40 uppercase font-black">Лекции</div>
-                  <div className="text-2xl font-black text-indigo-400">{stats.lecHours} <span className="text-xs text-white/30">час.</span></div>
+                  <div className="text-2xl font-black text-indigo-400">{stats.lecHours} <span className="text-xs text-white/30">ч.</span></div>
                </div>
                <div className={`${cardClass} p-5 text-center rounded-[2rem] border-b-4 border-b-emerald-500`}>
-                  <div className="text-[9px] opacity-40 uppercase font-black">ПО (Практика)</div>
-                  <div className="text-2xl font-black text-emerald-400">{stats.poHours} <span className="text-xs text-white/30">час.</span></div>
+                  <div className="text-[9px] opacity-40 uppercase font-black">ПО</div>
+                  <div className="text-2xl font-black text-emerald-400">{stats.poHours} <span className="text-xs text-white/30">ч.</span></div>
                </div>
                <div className={`${cardClass} p-5 text-center rounded-[2rem] border-b-4 border-b-amber-500`}>
-                  <div className="text-[9px] opacity-40 uppercase font-black">ПП (Вне лицея)</div>
-                  <div className="text-2xl font-black text-amber-400">{stats.ppHours} <span className="text-xs text-white/30">час.</span></div>
+                  <div className="text-[9px] opacity-40 uppercase font-black">ПП</div>
+                  <div className="text-2xl font-black text-amber-400">{stats.ppHours} <span className="text-xs text-white/30">ч.</span></div>
                </div>
-               <div className={`${cardClass} p-5 text-center rounded-[2rem] opacity-70`}>
-                  <div className="text-[9px] opacity-40 uppercase font-black">Итого</div>
-                  <div className="text-2xl font-black text-white">{stats.totalHours} <span className="text-xs text-white/30">час.</span></div>
+               <div className={`${cardClass} p-5 text-center rounded-[2rem] bg-indigo-600 text-white border-none`}>
+                  <div className="text-[9px] opacity-70 uppercase font-black">Итого</div>
+                  <div className="text-2xl font-black">{stats.totalHours} <span className="text-xs opacity-50">ч.</span></div>
                </div>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <div className={`${cardClass} p-5 text-center rounded-[2rem]`}>
-                    <div className="text-[9px] opacity-40 uppercase font-black">Явка %</div>
-                    <div className="text-2xl font-black text-white">{stats.attendance}%</div>
-                </div>
-                <button onClick={exportExcel} className="col-span-1 md:col-span-2 bg-emerald-600 rounded-[2rem] font-black uppercase text-xs text-white shadow-lg flex items-center justify-center gap-2">
-                    <span>Скачать Excel Журнал</span> ⬇
-                </button>
             </div>
 
             <div className={`${cardClass} p-6 md:p-8 rounded-[3rem]`}>
-              <h3 className="font-black uppercase mb-6 text-indigo-400 italic">Сводка по предметам</h3>
+              <h3 className="font-black uppercase mb-6 text-indigo-400 italic">Предметы (Нажми для истории)</h3>
               <div className="grid gap-2">
                 {Object.entries(stats.subjectHours).length > 0 ? Object.entries(stats.subjectHours).map(([name, hours]) => (
                   <button key={name} onClick={() => setHistorySubject(name)} className="w-full flex justify-between items-center p-4 bg-slate-900/40 rounded-2xl border border-white/5 hover:border-indigo-500/50 transition-all group">
                     <span className="font-bold text-xs uppercase text-left group-hover:text-indigo-400">{name}</span>
                     <div className="text-right">
                       <span className="font-black text-indigo-400 block">{hours} ч.</span>
-                      <span className="text-[9px] opacity-20 uppercase">История →</span>
+                      <span className="text-[9px] opacity-20 uppercase">Открыть →</span>
                     </div>
                   </button>
                 )) : <div className="text-center py-10 opacity-20 font-black uppercase italic">Нет данных</div>}
@@ -250,7 +228,7 @@ function App() {
           </div>
         )}
 
-        {/* --- Вкладка: ПЛАН (SCHEDULE) --- */}
+        {/* --- ПЛАН (КАЛЕНДАРЬ + СПИСОК) --- */}
         {currentTab === 'schedule' && (
           <div className="grid lg:grid-cols-12 gap-8 animate-in slide-in-from-bottom-4 duration-500">
             {/* КАЛЕНДАРЬ */}
@@ -300,33 +278,22 @@ function App() {
                   </div>
                 </div>
 
-                {/* --- 4 БОЛЬШИЕ КНОПКИ ВЫБОРА --- */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
-                    <button onClick={() => handleTypeSelect('Лекция', 2)} className={`py-3 rounded-xl text-[10px] font-black uppercase transition-all ${form.type === 'Лекция' ? 'bg-indigo-600 text-white shadow-lg scale-105' : 'bg-slate-800 text-slate-500 hover:text-white'}`}>
-                        Лекция (2ч)
-                    </button>
-                    <button onClick={() => handleTypeSelect('ПО', 6)} className={`py-3 rounded-xl text-[10px] font-black uppercase transition-all ${form.type === 'ПО' && form.hours === 6 ? 'bg-emerald-600 text-white shadow-lg scale-105' : 'bg-slate-800 text-slate-500 hover:text-white'}`}>
-                        ПО (6ч)
-                    </button>
-                    <button onClick={() => handleTypeSelect('ПО', 7)} className={`py-3 rounded-xl text-[10px] font-black uppercase transition-all ${form.type === 'ПО' && form.hours === 7 ? 'bg-emerald-600 text-white shadow-lg scale-105' : 'bg-slate-800 text-slate-500 hover:text-white'}`}>
-                        ПО (7ч)
-                    </button>
-                    <button onClick={() => handleTypeSelect('ПП', 8)} className={`py-3 rounded-xl text-[10px] font-black uppercase transition-all ${form.type === 'ПП' ? 'bg-amber-600 text-white shadow-lg scale-105' : 'bg-slate-800 text-slate-500 hover:text-white'}`}>
-                        ПП (8ч)
-                    </button>
+                {/* 4 КНОПКИ ТИПОВ УРОКА */}
+                <div className="grid grid-cols-4 gap-2 mb-4">
+                    <button onClick={() => handleTypeSelect('Лекция', 2)} className={`py-3 rounded-xl text-[9px] font-black uppercase transition-all ${form.type === 'Лекция' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-800 text-slate-500 hover:text-white'}`}>Лекция 2ч</button>
+                    <button onClick={() => handleTypeSelect('ПО', 6)} className={`py-3 rounded-xl text-[9px] font-black uppercase transition-all ${form.type === 'ПО' && form.hours === 6 ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-500 hover:text-white'}`}>ПО 6ч</button>
+                    <button onClick={() => handleTypeSelect('ПО', 7)} className={`py-3 rounded-xl text-[9px] font-black uppercase transition-all ${form.type === 'ПО' && form.hours === 7 ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-500 hover:text-white'}`}>ПО 7ч</button>
+                    <button onClick={() => handleTypeSelect('ПП', 8)} className={`py-3 rounded-xl text-[9px] font-black uppercase transition-all ${form.type === 'ПП' ? 'bg-amber-600 text-white shadow-lg' : 'bg-slate-800 text-slate-500 hover:text-white'}`}>ПП 8ч</button>
                 </div>
 
                 <form onSubmit={async (e) => {
                   e.preventDefault(); if(!form.subject) return;
-                  
-                  // LOG ДЛЯ ПРОВЕРКИ ТЕМЫ
-                  console.log("Отправка:", { ...form, group: activeGroup, date: selectedDate });
-                  
+                  // Отправляем на сервер
                   await fetch('/api/schedule', { method:'POST', headers:{'Content-Type':'application/json'}, 
                     body: JSON.stringify({...form, group:activeGroup, date:selectedDate, lessonNumber: parseInt(form.lessonNumber || 1), studentsPresent: parseInt(form.students || 0), type: form.type, hours: parseInt(form.hours) }) 
                   });
                   fetchData();
-                  // Сброс формы (тема тоже чистится)
+                  // Сброс формы
                   setForm(prev => ({...prev, subject:'', students:'', topic: '', notes: '', type: 'Лекция', hours: 2}));
                 }} className="space-y-3">
                   <div className="grid grid-cols-12 gap-3">
@@ -352,8 +319,7 @@ function App() {
                       <div className="flex items-center gap-3">
                         <div className="text-xl font-black text-slate-500 w-6">{r.lessonNumber}</div>
                         <button onClick={() => setHistorySubject(r.subject)} className="font-black text-lg uppercase tracking-tight hover:text-white text-left transition-all">{r.subject}</button>
-                        
-                        {/* КРАСИВЫЙ БЭЙДЖИК ТИПА */}
+                        {/* БЭЙДЖИК ТИПА */}
                         <span className={`text-[8px] font-black uppercase px-2 py-1 rounded ml-2 ${r.type === 'ПО' ? 'bg-emerald-500 text-black' : r.type === 'ПП' ? 'bg-amber-500 text-black' : 'bg-indigo-600 text-white'}`}>
                            {r.type} {r.hours}ч
                         </span>
@@ -377,7 +343,7 @@ function App() {
           </div>
         )}
 
-        {/* --- Вкладка: ОПЦИИ (SETTINGS) --- */}
+        {/* --- ВКЛАДКА: ОПЦИИ --- */}
         {currentTab === 'settings' && (
           <div className="grid lg:grid-cols-3 gap-6 animate-in slide-in-from-top-4 duration-500">
             {/* Группы */}
@@ -441,7 +407,7 @@ function App() {
           </div>
         )}
 
-        {/* --- МОДАЛКА: ИСТОРИЯ --- */}
+        {/* --- МОДАЛКА: ИСТОРИЯ (ФИНАЛ) --- */}
         {historySubject && (
           <div className="fixed inset-0 bg-[#0f172a]/95 backdrop-blur-md flex items-end md:items-center justify-center z-[100] p-0 md:p-4 animate-in fade-in duration-300">
             <div className="bg-[#1e293b] w-full max-w-2xl rounded-t-[2.5rem] md:rounded-[3rem] border border-indigo-500/30 overflow-hidden shadow-2xl">
@@ -460,6 +426,7 @@ function App() {
                         <div className="flex justify-between items-center">
                             <div className="flex gap-2 items-center">
                                 <span className="font-black text-white text-sm">{r.date.split('-').reverse().join('.')}</span>
+                                {/* ТИП УРОКА В ИСТОРИИ */}
                                 <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ml-1 ${r.type === 'ПО' ? 'bg-emerald-500 text-black' : r.type === 'ПП' ? 'bg-amber-500 text-black' : 'bg-indigo-600 text-white'}`}>
                                    {r.type} {r.hours}ч
                                 </span>
@@ -474,8 +441,12 @@ function App() {
                     )
                   })}
               </div>
-              <div className="p-6 bg-slate-900/50 text-center">
-                <button onClick={() => setHistorySubject(null)} className="w-full bg-slate-800 p-4 rounded-2xl font-black uppercase text-xs">Закрыть</button>
+              {/* ПОДВАЛ ИСТОРИИ: СУММА ЧАСОВ */}
+              <div className="p-6 bg-slate-900/50 text-center flex flex-col gap-2">
+                 <div className="text-[10px] font-black uppercase text-indigo-400 opacity-60 tracking-widest">
+                    Всего: {historyStats.count} занятий | {historyStats.hours} часов
+                 </div>
+                 <button onClick={() => setHistorySubject(null)} className="w-full bg-slate-800 p-4 rounded-2xl font-black uppercase text-xs">Закрыть</button>
               </div>
             </div>
           </div>
