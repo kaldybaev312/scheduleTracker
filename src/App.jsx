@@ -10,16 +10,16 @@ function App() {
   const [activeGroup, setActiveGroup] = useState(groups[0]);
   const [darkMode, setDarkMode] = useState(true);
   const [viewDate, setViewDate] = useState(new Date()); 
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  // Инициализируем текущей датой в формате YYYY-MM-DD без привязки к часам
+  const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA')); 
   const [filterSubject, setFilterSubject] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showTemplateEditor, setShowTemplateEditor] = useState(false);
 
   const [form, setForm] = useState({ subject: '', lessonNumber: '' });
   const [newSubject, setNewSubject] = useState('');
-  const [newGroup, setNewGroup] = useState('');
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = new Date().toLocaleDateString('en-CA');
 
   // --- ЗАГРУЗКА ДАННЫХ ---
   useEffect(() => {
@@ -44,6 +44,16 @@ function App() {
     setLoading(false);
   }
 
+  // --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+  const sortRecords = (data) => [...data].sort((a, b) => a.date.localeCompare(b.date) || a.lessonNumber - b.lessonNumber);
+
+  // ГЛАВНЫЙ ФИКС: Функция форматирования строки YYYY-MM-DD -> DD.MM.YYYY
+  const formatDateDisplay = (dateStr) => {
+    if (!dateStr) return "";
+    const [year, month, day] = dateStr.split('-');
+    return `${day}.${month}.${year}`;
+  };
+
   // --- ЛОГИКА ШАБЛОНОВ ---
   const saveTemplate = async (dayOfWeek, lessonNumber, subject) => {
     const res = await fetch('/api/templates', {
@@ -59,7 +69,6 @@ function App() {
   };
 
   const applyTemplate = async () => {
-    // Безопасное получение дня недели без смещения часового пояса
     const [y, m, d] = selectedDate.split('-').map(Number);
     const dateObj = new Date(y, m - 1, d);
     let dayOfWeek = dateObj.getDay(); 
@@ -89,9 +98,7 @@ function App() {
     fetchData();
   };
 
-  // --- ОБЩИЕ ФУНКЦИИ ---
-  const sortRecords = (data) => [...data].sort((a, b) => a.date.localeCompare(b.date) || a.lessonNumber - b.lessonNumber);
-
+  // --- ОПЕРАЦИИ С ЗАПИСЯМИ ---
   const addRecord = async (e) => {
     e.preventDefault();
     if (!form.subject) return;
@@ -99,7 +106,12 @@ function App() {
     const res = await fetch('/api/schedule', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subject: form.subject, group: activeGroup, date: selectedDate, lessonNumber: parseInt(finalNum) })
+      body: JSON.stringify({ 
+        subject: form.subject, 
+        group: activeGroup, 
+        date: selectedDate, 
+        lessonNumber: parseInt(finalNum) 
+      })
     });
     const saved = await res.json();
     setRecords(sortRecords([...records, saved]));
@@ -111,12 +123,7 @@ function App() {
     setRecords(records.filter(r => r._id !== id));
   };
 
-  // Форматирование даты YYYY-MM-DD -> DD.MM.YYYY
-  const formatDate = (dateStr) => {
-    if (!dateStr) return "";
-    return dateStr.split('-').reverse().join('.');
-  };
-
+  // --- ГЕНЕРАЦИЯ КАЛЕНДАРЯ ---
   const calendarDays = (() => {
     const year = viewDate.getFullYear();
     const month = viewDate.getMonth();
@@ -132,7 +139,7 @@ function App() {
   const themeClass = darkMode ? "bg-slate-900 text-white" : "bg-gray-50 text-slate-900";
   const cardClass = darkMode ? "bg-slate-800 border-slate-700 shadow-xl" : "bg-white border-gray-200 shadow-md";
 
-  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-900 text-indigo-500 font-black animate-pulse uppercase tracking-[0.3em]">Синхронизация...</div>;
+  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-900 text-indigo-500 font-black animate-pulse uppercase tracking-[0.3em]">Загрузка...</div>;
 
   return (
     <div className={`min-h-screen transition-all ${themeClass} font-sans pb-20`}>
@@ -159,7 +166,7 @@ function App() {
         {showTemplateEditor ? (
           /* РЕДАКТОР ШАБЛОНОВ */
           <div className={`p-8 rounded-[3rem] border-2 border-amber-500/30 mb-10 ${cardClass}`}>
-            <h2 className="text-2xl font-black text-amber-500 uppercase mb-6 flex items-center gap-2">🛠 Недельный план: {activeGroup}</h2>
+            <h2 className="text-2xl font-black text-amber-500 uppercase mb-6">🛠 Шаблоны: {activeGroup}</h2>
             <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
               {[1,2,3,4,5,6,7].map(dayNum => (
                 <div key={dayNum} className="space-y-3">
@@ -173,7 +180,7 @@ function App() {
                         key={lessonNum}
                         value={temp?.subject || ""}
                         onChange={(e) => saveTemplate(dayNum, lessonNum, e.target.value)}
-                        className="w-full p-2 rounded-lg bg-slate-900 border border-slate-700 text-[10px] outline-none focus:border-amber-500 text-white"
+                        className="w-full p-2 rounded-lg bg-slate-900 border border-slate-700 text-[10px] text-white outline-none focus:border-amber-500"
                       >
                         <option value="">- {lessonNum} пара -</option>
                         {subjects.map(s => <option key={s} value={s}>{s}</option>)}
@@ -192,24 +199,35 @@ function App() {
               <div className={`p-6 rounded-[2.5rem] border ${cardClass}`}>
                 <div className="flex justify-between items-center mb-6 px-2">
                   <div className="flex gap-2">
-                    <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() - 1)))} className="w-8 h-8 flex bg-slate-700 rounded-lg justify-center items-center hover:bg-indigo-600 transition text-white">❮</button>
-                    <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() + 1)))} className="w-8 h-8 flex bg-slate-700 rounded-lg justify-center items-center hover:bg-indigo-600 transition text-white">❯</button>
+                    <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() - 1)))} className="w-8 h-8 flex bg-slate-700 rounded-lg justify-center items-center text-white">❮</button>
+                    <button onClick={() => setViewDate(new Date(viewDate.setMonth(viewDate.getMonth() + 1)))} className="w-8 h-8 flex bg-slate-700 rounded-lg justify-center items-center text-white">❯</button>
                   </div>
                   <span className="font-black uppercase text-[10px] text-indigo-400">
                     {viewDate.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}
                   </span>
                 </div>
-                <div className="grid grid-cols-7 gap-1 text-center text-[9px] font-black opacity-20 mb-4 tracking-tighter">
+                <div className="grid grid-cols-7 gap-1 text-center text-[9px] font-black opacity-20 mb-4">
                   <div>ПН</div><div>ВТ</div><div>СР</div><div>ЧТ</div><div>ПТ</div><div>СБ</div><div>ВС</div>
                 </div>
                 <div className="grid grid-cols-7 gap-1.5">
                   {calendarDays.map((day, i) => {
                     if (!day) return <div key={i} className="h-10"></div>;
-                    const dStr = day.toISOString().split('T')[0];
+                    
+                    // Генерируем строку YYYY-MM-DD вручную для клика
+                    const y = day.getFullYear();
+                    const m = String(day.getMonth() + 1).padStart(2, '0');
+                    const d = String(day.getDate()).padStart(2, '0');
+                    const dStr = `${y}-${m}-${d}`;
+
                     const hasLessons = records.some(r => r.date === dStr && r.group === activeGroup);
                     const isSelected = selectedDate === dStr;
+
                     return (
-                      <button key={dStr} onClick={() => {setSelectedDate(dStr); setFilterSubject(null);}} className={`h-10 rounded-xl text-xs font-bold transition-all border relative ${isSelected ? 'bg-indigo-600 border-indigo-400 shadow-lg scale-110 z-10 text-white' : dStr === todayStr ? 'border-indigo-500 text-indigo-400 border-2' : 'bg-slate-700/20 border-slate-700 hover:border-slate-500'}`}>
+                      <button 
+                        key={dStr} 
+                        onClick={() => {setSelectedDate(dStr); setFilterSubject(null);}} 
+                        className={`h-10 rounded-xl text-xs font-bold transition-all border relative ${isSelected ? 'bg-indigo-600 border-indigo-400 text-white scale-110 z-10' : dStr === todayStr ? 'border-indigo-500 text-indigo-400 border-2' : 'bg-slate-700/20 border-slate-700 hover:border-slate-500'}`}
+                      >
                         {day.getDate()}
                         {hasLessons && !isSelected && <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-1 h-1 bg-indigo-400 rounded-full"></div>}
                       </button>
@@ -236,11 +254,11 @@ function App() {
               {/* ФОРМА ВВОДА */}
               <div className={`p-8 rounded-[3rem] border-2 border-indigo-500/20 ${cardClass}`}>
                 <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-2xl font-black text-indigo-400 uppercase italic">
-                    {/* РУЧНОЕ ФОРМАТИРОВАНИЕ ДАТЫ */}
-                    {formatDate(selectedDate)}
+                  {/* ГЛАВНЫЙ ФИКС ОТОБРАЖЕНИЯ ДАТЫ */}
+                  <h2 className="text-3xl font-black text-indigo-400 italic">
+                    {formatDateDisplay(selectedDate)}
                   </h2>
-                  <button onClick={applyTemplate} className="bg-amber-500 hover:bg-amber-600 text-[10px] font-black px-4 py-2 rounded-xl uppercase transition-all flex items-center gap-2 text-white">🪄 Магия шаблона</button>
+                  <button onClick={applyTemplate} className="bg-amber-500 hover:bg-amber-600 text-[10px] font-black px-4 py-2 rounded-xl uppercase text-white">🪄 Магия шаблона</button>
                 </div>
 
                 <form onSubmit={addRecord} className="grid grid-cols-1 md:grid-cols-12 gap-4">
@@ -257,45 +275,40 @@ function App() {
                   <div className="md:col-span-2">
                     <input type="number" className="w-full p-4 h-full rounded-2xl bg-slate-900 border border-slate-700 text-center font-black text-white outline-none" placeholder="Пара" value={form.lessonNumber} onChange={e => setForm({...form, lessonNumber: e.target.value})} />
                   </div>
-                  <button type="submit" className="md:col-span-3 bg-indigo-600 rounded-2xl font-black uppercase tracking-widest shadow-xl hover:bg-indigo-500 active:scale-95 transition-all text-white">Записать</button>
+                  <button type="submit" className="md:col-span-3 bg-indigo-600 rounded-2xl font-black uppercase shadow-xl hover:bg-indigo-500 text-white transition-all">Записать</button>
                 </form>
               </div>
 
               {/* СПИСОК УРОКОВ */}
               <div className="space-y-4">
-                <div className="flex justify-between items-end px-4">
-                  <h3 className="font-black text-2xl uppercase tracking-tighter">
-                    {filterSubject ? `История: ${filterSubject}` : `Занятия на день`}
-                  </h3>
-                  {filterSubject && <button onClick={() => setFilterSubject(null)} className="text-[10px] bg-red-500/10 text-red-500 px-4 py-2 rounded-xl font-black border border-red-500/20 uppercase">Сбросить</button>}
-                </div>
+                <h3 className="font-black text-2xl uppercase px-4">
+                  {filterSubject ? `История: ${filterSubject}` : `Занятия на день`}
+                </h3>
 
                 <div className="grid gap-4">
                   {records.filter(r => {
-                    // ЖЕСТКАЯ ФИЛЬТРАЦИЯ ПО СТРОКАМ
-                    const isSameGroup = r.group === activeGroup;
-                    const isSameDate = r.date === selectedDate;
-                    const isSameSub = filterSubject ? r.subject === filterSubject : true;
-                    return isSameGroup && (filterSubject ? isSameSub : isSameDate);
+                    const isGroup = r.group === activeGroup;
+                    const isDate = r.date === selectedDate; // Прямое сравнение строк
+                    const isSub = filterSubject ? r.subject === filterSubject : true;
+                    return isGroup && (filterSubject ? isSub : isDate);
                   })
-                    .map(r => (
-                      <div key={r._id} className={`p-5 rounded-[2rem] border flex justify-between items-center group transition-all ${cardClass} border-l-[12px] border-l-indigo-600 hover:translate-x-2`}>
-                        <div className="flex items-center gap-6">
-                          <div className="text-center min-w-[40px]">
-                            <span className="text-[10px] font-black opacity-30 uppercase block">Пара</span>
-                            <div className="text-2xl font-black text-indigo-400">{r.lessonNumber}</div>
-                          </div>
-                          <div className="h-10 w-[1px] bg-slate-700"></div>
-                          <div>
-                            <button onClick={() => setFilterSubject(r.subject)} className="font-black text-xl uppercase tracking-tight hover:text-indigo-400 transition block text-left">{r.subject}</button>
-                            <div className="bg-slate-700/50 text-[10px] px-3 py-1 rounded-full font-bold text-slate-400 border border-slate-600/50 mt-1 inline-block">
-                              {/* РУЧНОЕ ФОРМАТИРОВАНИЕ ДАТЫ КАРТОЧКИ */}
-                              📅 {formatDate(r.date)}
-                            </div>
+                  .map(r => (
+                    <div key={r._id} className={`p-5 rounded-[2rem] border flex justify-between items-center group ${cardClass} border-l-[12px] border-l-indigo-600`}>
+                      <div className="flex items-center gap-6">
+                        <div className="text-center min-w-[40px]">
+                          <span className="text-[10px] font-black opacity-30 uppercase block">Пара</span>
+                          <div className="text-2xl font-black text-indigo-400">{r.lessonNumber}</div>
+                        </div>
+                        <div className="h-10 w-[1px] bg-slate-700"></div>
+                        <div>
+                          <div className="font-black text-xl uppercase text-left">{r.subject}</div>
+                          <div className="bg-slate-700/50 text-[10px] px-3 py-1 rounded-full font-bold text-slate-400 border border-slate-600/50 mt-1 inline-block">
+                            📅 {formatDateDisplay(r.date)}
                           </div>
                         </div>
-                        <button onClick={() => deleteRecord(r._id)} className="w-10 h-10 flex items-center justify-center rounded-full bg-red-500/10 text-red-500 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500 hover:text-white">✕</button>
                       </div>
+                      <button onClick={() => deleteRecord(r._id)} className="w-10 h-10 flex items-center justify-center rounded-full bg-red-500/10 text-red-500 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500 hover:text-white">✕</button>
+                    </div>
                   ))}
                   {records.filter(r => r.group === activeGroup && (filterSubject ? r.subject === filterSubject : r.date === selectedDate)).length === 0 && (
                     <div className="text-center py-20 border-4 border-dashed border-slate-800 rounded-[3rem] opacity-10 font-black uppercase tracking-[0.3em]">Пусто</div>
