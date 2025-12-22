@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 
 function App() {
-  // --- СОСТОЯНИЯ (LocalStorage для настроек, API для данных) ---
-  const [groups, setGroups] = useState(() => JSON.parse(localStorage.getItem('groups_v10')) || [{name: "Группа 1", totalStudents: 25}]);
-  const [subjects, setSubjects] = useState(() => JSON.parse(localStorage.getItem('subj_v10')) || []);
+  // --- СОСТОЯНИЯ ---
+  const [groups, setGroups] = useState(() => JSON.parse(localStorage.getItem('groups_v11')) || [{name: "Группа 1", totalStudents: 25}]);
+  const [subjects, setSubjects] = useState(() => JSON.parse(localStorage.getItem('subj_v11')) || []);
   const [records, setRecords] = useState([]);
   const [templates, setTemplates] = useState([]);
   
@@ -16,14 +16,14 @@ function App() {
   const [currentTab, setCurrentTab] = useState('schedule'); 
   const [historySubject, setHistorySubject] = useState(null);
 
-  const [form, setForm] = useState({ subject: '', lessonNumber: '', students: '' });
+  // Обновленная форма с Темой и Заметками
+  const [form, setForm] = useState({ subject: '', lessonNumber: '', students: '', topic: '', notes: '' });
   const [newGroup, setNewGroup] = useState({ name: '', total: '' });
   const [newSubj, setNewSubj] = useState({ name: '', target: 'all' });
 
-  // Автосохранение настроек
   useEffect(() => {
-    localStorage.setItem('groups_v10', JSON.stringify(groups));
-    localStorage.setItem('subj_v10', JSON.stringify(subjects));
+    localStorage.setItem('groups_v11', JSON.stringify(groups));
+    localStorage.setItem('subj_v11', JSON.stringify(subjects));
   }, [groups, subjects]);
 
   useEffect(() => { fetchData(); }, [activeGroup]);
@@ -42,7 +42,7 @@ function App() {
     setLoading(false);
   }
 
-  // --- УМНАЯ АНАЛИТИКА (БЕЗОПАСНАЯ) ---
+  // --- АНАЛИТИКА ---
   const stats = useMemo(() => {
     const groupRecs = records.filter(r => r.group === activeGroup);
     const subjH = groupRecs.reduce((acc, r) => {
@@ -59,18 +59,19 @@ function App() {
     return { totalHours, attendance, subjectHours: subjH, count: groupRecs.length };
   }, [records, activeGroup, groups]);
 
-  // --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+  // --- ФУНКЦИИ ---
   const applyTemplate = async () => {
     const dObj = new Date(selectedDate);
     let dow = dObj.getDay() || 7;
     const dTemps = templates.filter(t => t.dayOfWeek === dow && t.subject);
-    if(!dTemps.length) return alert("Шаблон для этого дня недели пуст");
+    if(!dTemps.length) return alert("Шаблон пуст");
     
     for (const t of dTemps) {
+      // Шаблон создает урок без темы (она заполняется позже)
       await fetch('/api/schedule', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ subject: t.subject, group: activeGroup, date: selectedDate, lessonNumber: t.lessonNumber, studentsPresent: 0 })
+        body: JSON.stringify({ subject: t.subject, group: activeGroup, date: selectedDate, lessonNumber: t.lessonNumber, studentsPresent: 0, topic: '', notes: '' })
       });
     }
     fetchData();
@@ -79,7 +80,7 @@ function App() {
   const copyDay = async (target) => {
     if(!target) return;
     const dayRecs = records.filter(r => r.date === selectedDate && r.group === activeGroup);
-    if(!dayRecs.length) return alert("Нет уроков для копирования");
+    if(!dayRecs.length) return alert("Нет уроков");
     for (const r of dayRecs) {
       await fetch('/api/schedule', {
         method: 'POST',
@@ -92,12 +93,12 @@ function App() {
 
   const exportExcel = () => {
     const data = records.filter(r => r.group === activeGroup).map(r => ({
-      "Дата": r.date, "Пара": r.lessonNumber, "Предмет": r.subject, "Часы": 2, "Пришло": r.studentsPresent
+      "Дата": r.date, "Пара": r.lessonNumber, "Предмет": r.subject, "Тема": r.topic || "", "ДЗ/Заметки": r.notes || "", "Часы": 2, "Явка": r.studentsPresent
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Отчет");
-    XLSX.writeFile(wb, `EduLog_${activeGroup}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, "Журнал");
+    XLSX.writeFile(wb, `Journal_${activeGroup}.xlsx`);
   };
 
   const calendarDays = (() => {
@@ -121,7 +122,7 @@ function App() {
         
         {/* HEADER */}
         <header className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 py-4 border-b border-indigo-500/20">
-          <h1 className="text-3xl font-black text-indigo-500 italic tracking-tighter">EDU.LOG</h1>
+          <h1 className="text-3xl font-black text-indigo-500 italic tracking-tighter">EDU.LOG <span className="text-[10px] not-italic text-slate-500">v11 Pro</span></h1>
           <nav className="flex bg-slate-800/50 p-1 rounded-xl w-full md:w-auto overflow-x-auto no-scrollbar">
             {['schedule', 'dashboard', 'settings'].map(t => (
               <button key={t} onClick={() => setCurrentTab(t)} className={`flex-1 md:flex-none px-6 py-2.5 rounded-lg text-[10px] font-black uppercase whitespace-nowrap transition-all ${currentTab === t ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500'}`}>
@@ -153,18 +154,18 @@ function App() {
                 <div className="text-[9px] opacity-40 uppercase font-black">Пар</div>
                 <div className="text-2xl font-black">{stats.count}</div>
               </div>
-              <button onClick={exportExcel} className="bg-emerald-600 rounded-[2rem] font-black uppercase text-[10px] text-white shadow-lg shadow-emerald-900/20">Excel ⬇</button>
+              <button onClick={exportExcel} className="bg-emerald-600 rounded-[2rem] font-black uppercase text-[10px] text-white shadow-lg">Excel ⬇</button>
             </div>
 
             <div className={`${cardClass} p-6 md:p-8 rounded-[3rem]`}>
-              <h3 className="font-black uppercase mb-6 text-indigo-400 italic">Нагрузка по предметам (клик для истории)</h3>
+              <h3 className="font-black uppercase mb-6 text-indigo-400 italic">Сводка по предметам</h3>
               <div className="grid gap-2">
                 {Object.entries(stats.subjectHours).length > 0 ? Object.entries(stats.subjectHours).map(([name, hours]) => (
-                  <button key={name} onClick={() => setHistorySubject(name)} className="w-full flex justify-between items-center p-4 bg-slate-900/40 rounded-2xl border border-white/5 hover:border-indigo-500/50 transition-all">
-                    <span className="font-bold text-xs uppercase text-left">{name}</span>
+                  <button key={name} onClick={() => setHistorySubject(name)} className="w-full flex justify-between items-center p-4 bg-slate-900/40 rounded-2xl border border-white/5 hover:border-indigo-500/50 transition-all group">
+                    <span className="font-bold text-xs uppercase text-left group-hover:text-indigo-400">{name}</span>
                     <div className="text-right">
                       <span className="font-black text-indigo-400 block">{hours} ч.</span>
-                      <span className="text-[9px] opacity-20 uppercase">История →</span>
+                      <span className="text-[9px] opacity-20 uppercase">Открыть силлабус →</span>
                     </div>
                   </button>
                 )) : <div className="text-center py-10 opacity-20 font-black uppercase italic">Нет данных</div>}
@@ -176,6 +177,7 @@ function App() {
         {/* --- ВКЛАДКА: ПЛАН --- */}
         {currentTab === 'schedule' && (
           <div className="grid lg:grid-cols-12 gap-8 animate-in slide-in-from-bottom-4 duration-500">
+            {/* КАЛЕНДАРЬ */}
             <div className="lg:col-span-4">
               <div className={`${cardClass} p-6 rounded-[2.5rem]`}>
                 <div className="flex justify-between items-center mb-6">
@@ -193,7 +195,7 @@ function App() {
                     const isS = selectedDate === ds;
                     const has = records.some(r => r.date === ds && r.group === activeGroup);
                     return (
-                      <button key={ds} onClick={() => setSelectedDate(ds)} className={`h-10 rounded-xl text-xs font-bold transition-all relative border ${isS ? 'bg-indigo-600 border-indigo-400 scale-105' : 'bg-slate-700/20 border-slate-700 text-slate-400'}`}>
+                      <button key={ds} onClick={() => setSelectedDate(ds)} className={`h-10 rounded-xl text-xs font-bold transition-all relative border ${isS ? 'bg-indigo-600 border-indigo-400 scale-105 shadow-lg' : 'bg-slate-700/20 border-slate-700 text-slate-400'}`}>
                         {day.getDate()}
                         {has && <div className={`absolute bottom-1.5 w-1 h-1 rounded-full left-1/2 -translate-x-1/2 ${isS ? 'bg-white' : 'bg-indigo-500'}`}></div>}
                       </button>
@@ -203,12 +205,13 @@ function App() {
               </div>
             </div>
 
+            {/* СПИСОК И ФОРМА */}
             <div className="lg:col-span-8 space-y-6">
-              <div className={`${cardClass} p-8 rounded-[3rem] border-2 border-indigo-500/10`}>
+              <div className={`${cardClass} p-6 md:p-8 rounded-[3rem] border-2 border-indigo-500/10`}>
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
                   <h2 className="text-3xl font-black text-indigo-400 italic tracking-tighter">{selectedDate.split('-').reverse().join('.')}</h2>
                   <div className="flex w-full md:w-auto gap-2">
-                    <button onClick={applyTemplate} className="flex-1 bg-amber-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase">Магия 🪄</button>
+                    <button onClick={applyTemplate} className="flex-1 bg-amber-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg shadow-amber-900/20">Магия 🪄</button>
                     <select onChange={(e) => copyDay(e.target.value)} className="flex-1 bg-slate-700 px-4 py-2 rounded-xl text-[10px] font-black uppercase outline-none" value="">
                       <option value="">Копия в...</option>
                       {groups.filter(g => g.name !== activeGroup).map(g => <option key={g.name} value={g.name}>{g.name}</option>)}
@@ -222,34 +225,48 @@ function App() {
                     body: JSON.stringify({...form, group:activeGroup, date:selectedDate, lessonNumber: parseInt(form.lessonNumber || 1), studentsPresent: parseInt(form.students || 0)}) 
                   });
                   fetchData();
-                  setForm({subject:'', lessonNumber:'', students:''});
-                }} className="grid grid-cols-12 gap-3">
-                  <select className="col-span-12 md:col-span-6 bg-[#0f172a] p-4 rounded-2xl border border-slate-700 font-bold outline-none focus:border-indigo-500" value={form.subject} onChange={e => setForm({...form, subject:e.target.value})}>
-                    <option value="">Выберите предмет</option>
-                    {subjects.filter(s => s.targetGroup === 'all' || s.targetGroup === activeGroup).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
-                  </select>
-                  <input type="number" placeholder="Пара" className="col-span-6 md:col-span-2 bg-[#0f172a] p-4 rounded-2xl border border-slate-700 text-center font-black" value={form.lessonNumber} onChange={e => setForm({...form, lessonNumber:e.target.value})} />
-                  <input type="number" placeholder="Студ." className="col-span-6 md:col-span-2 bg-[#0f172a] p-4 rounded-2xl border border-slate-700 text-center font-black" value={form.students} onChange={e => setForm({...form, students:e.target.value})} />
-                  <button className="col-span-12 md:col-span-2 bg-indigo-600 rounded-2xl font-black uppercase text-xs shadow-lg active:scale-95 transition-all">OK</button>
+                  setForm({subject:'', lessonNumber:'', students:'', topic: '', notes: ''});
+                }} className="space-y-3">
+                  <div className="grid grid-cols-12 gap-3">
+                    <select className="col-span-12 md:col-span-6 bg-[#0f172a] p-4 rounded-2xl border border-slate-700 font-bold outline-none text-sm" value={form.subject} onChange={e => setForm({...form, subject:e.target.value})}>
+                      <option value="">Выберите предмет</option>
+                      {subjects.filter(s => s.targetGroup === 'all' || s.targetGroup === activeGroup).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+                    </select>
+                    <input type="number" placeholder="Пара №" className="col-span-4 md:col-span-2 bg-[#0f172a] p-4 rounded-2xl border border-slate-700 text-center font-black outline-none text-sm" value={form.lessonNumber} onChange={e => setForm({...form, lessonNumber:e.target.value})} />
+                    <input type="number" placeholder="Студ." className="col-span-4 md:col-span-2 bg-[#0f172a] p-4 rounded-2xl border border-slate-700 text-center font-black outline-none text-sm" value={form.students} onChange={e => setForm({...form, students:e.target.value})} />
+                    <button className="col-span-4 md:col-span-2 bg-indigo-600 rounded-2xl font-black uppercase text-xs shadow-lg active:scale-95 transition-all">OK</button>
+                  </div>
+                  {/* НОВЫЕ ПОЛЯ */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <input placeholder="Тема занятия..." className="bg-[#0f172a] p-3 rounded-xl border border-slate-700 text-xs w-full" value={form.topic} onChange={e => setForm({...form, topic: e.target.value})} />
+                    <input placeholder="ДЗ / Заметки..." className="bg-[#0f172a] p-3 rounded-xl border border-slate-700 text-xs w-full" value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} />
+                  </div>
                 </form>
               </div>
 
               <div className="grid gap-3">
                 {records.filter(r => r.group === activeGroup && r.date === selectedDate).sort((a,b)=>a.lessonNumber-b.lessonNumber).map(r => (
-                  <div key={r._id} className={`${cardClass} p-5 rounded-[2rem] border-l-[12px] border-l-indigo-600 flex justify-between items-center group`}>
-                    <div className="flex items-center gap-6">
-                      <div className="text-2xl font-black text-indigo-400">{r.lessonNumber}</div>
-                      <div>
+                  <div key={r._id} className={`${cardClass} p-5 rounded-[2rem] border-l-[12px] border-l-indigo-600 flex justify-between items-start group`}>
+                    <div className="flex flex-col gap-1 w-full">
+                      <div className="flex items-center gap-4">
+                        <div className="text-xl font-black text-indigo-400 w-6">{r.lessonNumber}</div>
                         <button onClick={() => setHistorySubject(r.subject)} className="font-black text-lg uppercase tracking-tight hover:text-indigo-400 text-left transition-all">{r.subject}</button>
-                        <div className="text-[9px] opacity-40 font-bold mt-1 uppercase">🕒 2 ЧАСА | 👥 {r.studentsPresent}/{currentGroupInfo.totalStudents} чел.</div>
+                      </div>
+                      
+                      {/* ОТОБРАЖЕНИЕ ТЕМЫ И ЗАМЕТОК */}
+                      <div className="pl-10">
+                        {r.topic && <div className="text-xs font-bold text-white mb-0.5">📘 {r.topic}</div>}
+                        {r.notes && <div className="text-[10px] text-slate-400 italic">📝 {r.notes}</div>}
+                        <div className="text-[9px] opacity-40 font-bold mt-2 uppercase">🕒 2 ЧАСА | 👥 {r.studentsPresent}/{groups.find(g=>g.name===activeGroup)?.totalStudents} чел.</div>
                       </div>
                     </div>
+                    
                     <button onClick={async () => {
-                      if(window.confirm("Удалить?")) {
+                      if(window.confirm("Удалить урок?")) {
                         await fetch(`/api/schedule?id=${r._id}`, {method:'DELETE'});
                         setRecords(records.filter(x => x._id !== r._id));
                       }
-                    }} className="text-red-500 font-bold px-4 md:opacity-0 group-hover:opacity-100 transition-all uppercase text-[10px]">Удал.</button>
+                    }} className="text-red-500 font-bold px-2 md:opacity-0 group-hover:opacity-100 transition-all uppercase text-[10px] self-start mt-2">✕</button>
                   </div>
                 ))}
               </div>
@@ -260,23 +277,20 @@ function App() {
         {/* --- ВКЛАДКА: ОПЦИИ --- */}
         {currentTab === 'settings' && (
           <div className="grid lg:grid-cols-3 gap-6 animate-in slide-in-from-top-4 duration-500">
+            {/* Группы */}
             <div className={`${cardClass} p-6 rounded-[2rem]`}>
               <h2 className="text-lg font-black uppercase mb-4 text-indigo-400 italic">Группы</h2>
               <div className="space-y-3 mb-4">
                 <input className="w-full bg-[#0f172a] border border-slate-700 p-3 rounded-xl text-xs" placeholder="Имя группы" value={newGroup.name} onChange={e => setNewGroup({...newGroup, name:e.target.value})} />
                 <input type="number" className="w-full bg-[#0f172a] border border-slate-700 p-3 rounded-xl text-xs" placeholder="Всего студентов" value={newGroup.total} onChange={e => setNewGroup({...newGroup, total:e.target.value})} />
-                <button onClick={() => {if(newGroup.name && newGroup.total){setGroups([...groups, {name:newGroup.name, totalStudents:parseInt(newGroup.total)}]); setNewGroup({name:'', total:''});}}} className="w-full bg-indigo-600 p-3 rounded-xl font-black uppercase text-xs">Добавить группу</button>
+                <button onClick={() => {if(newGroup.name && newGroup.total){setGroups([...groups, {name:newGroup.name, totalStudents:parseInt(newGroup.total)}]); setNewGroup({name:'', total:''});}}} className="w-full bg-indigo-600 p-3 rounded-xl font-black uppercase text-xs">Добавить</button>
               </div>
               <div className="space-y-2">
-                {groups.map(g => (
-                  <div key={g.name} className="flex justify-between p-3 bg-slate-900/40 rounded-xl text-xs border border-white/5">
-                    <span className="font-bold">{g.name}</span>
-                    <span className="opacity-40">{g.totalStudents} чел.</span>
-                  </div>
-                ))}
+                {groups.map(g => <div key={g.name} className="flex justify-between p-3 bg-slate-900/40 rounded-xl text-xs border border-white/5"><span className="font-bold">{g.name}</span><span className="opacity-40">{g.totalStudents} чел.</span></div>)}
               </div>
             </div>
 
+            {/* Библиотека */}
             <div className={`${cardClass} p-6 rounded-[2rem]`}>
               <h2 className="text-lg font-black uppercase mb-4 text-emerald-400 italic">Библиотека</h2>
               <div className="space-y-3 mb-4">
@@ -285,20 +299,16 @@ function App() {
                   <option value="all">Для всех</option>
                   {groups.map(g => <option key={g.name} value={g.name}>{g.name}</option>)}
                 </select>
-                <button onClick={() => {if(newSubj.name){setSubjects([...subjects, {name:newSubj.name, targetGroup:newSubj.target}]); setNewSubj({name:'', target:'all'});}}} className="w-full bg-emerald-600 p-3 rounded-xl font-black uppercase text-xs">В библиотеку</button>
+                <button onClick={() => {if(newSubj.name){setSubjects([...subjects, {name:newSubj.name, targetGroup:newSubj.target}]); setNewSubj({name:'', target:'all'});}}} className="w-full bg-emerald-600 p-3 rounded-xl font-black uppercase text-xs">Добавить</button>
               </div>
               <div className="max-h-40 overflow-y-auto space-y-2 pr-1">
-                {subjects.map((s, i) => (
-                  <div key={i} className="flex justify-between p-2 bg-slate-900/40 rounded-lg text-[10px]">
-                    <span>{s.name} <span className="opacity-20">({s.targetGroup})</span></span>
-                    <button onClick={() => setSubjects(subjects.filter((_, idx) => idx !== i))} className="text-red-500">✕</button>
-                  </div>
-                ))}
+                {subjects.map((s, i) => (<div key={i} className="flex justify-between p-2 bg-slate-900/40 rounded-lg text-[10px]"><span>{s.name} <span className="opacity-20">({s.targetGroup})</span></span><button onClick={() => setSubjects(subjects.filter((_, idx) => idx !== i))} className="text-red-500">✕</button></div>))}
               </div>
             </div>
 
+            {/* План */}
             <div className={`${cardClass} p-6 rounded-[2rem]`}>
-              <h2 className="text-lg font-black uppercase mb-4 text-amber-500 italic">План (4 пары)</h2>
+              <h2 className="text-lg font-black uppercase mb-4 text-amber-500 italic">План</h2>
               <div className="space-y-4 max-h-[400px] overflow-y-auto pr-1">
                 {[1,2,3,4,5,6].map(d => (
                   <div key={d} className="p-3 bg-slate-900/40 rounded-2xl border border-white/5 mb-2">
@@ -308,9 +318,7 @@ function App() {
                         const t = templates.find(x => x.dayOfWeek === d && x.lessonNumber === l);
                         return (
                           <select key={l} className="bg-slate-800 p-1 rounded border border-slate-700 text-[9px]" value={t?.subject || ""} onChange={(e) => {
-                            fetch('/api/templates', { method: 'POST', headers: {'Content-Type':'application/json'},
-                              body: JSON.stringify({ group: activeGroup, dayOfWeek: d, lessonNumber: l, subject: e.target.value })
-                            }).then(() => fetchData());
+                            fetch('/api/templates', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ group: activeGroup, dayOfWeek: d, lessonNumber: l, subject: e.target.value }) }).then(() => fetchData());
                           }}>
                             <option value="">Пара {l}</option>
                             {subjects.filter(s => s.targetGroup === 'all' || s.targetGroup === activeGroup).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
@@ -325,7 +333,7 @@ function App() {
           </div>
         )}
 
-        {/* --- МОДАЛЬНОЕ ОКНО ИСТОРИИ (БЕЗОПАСНОЕ) --- */}
+        {/* --- МОДАЛКА: СИЛЛАБУС (ИСТОРИЯ) --- */}
         {historySubject && (
           <div className="fixed inset-0 bg-[#0f172a]/95 backdrop-blur-md flex items-end md:items-center justify-center z-[100] p-0 md:p-4 animate-in fade-in duration-300">
             <div className="bg-[#1e293b] w-full max-w-2xl rounded-t-[2.5rem] md:rounded-[3rem] border border-indigo-500/30 overflow-hidden shadow-2xl">
@@ -340,17 +348,23 @@ function App() {
                     const group = groups.find(g => g.name === activeGroup);
                     const att = group ? ((r.studentsPresent / group.totalStudents) * 100).toFixed(0) : 0;
                     return (
-                      <div key={i} className="flex justify-between items-center p-4 bg-slate-900/50 rounded-2xl border border-white/5">
-                        <span className="font-black text-indigo-400 text-sm">{r.date.split('-').reverse().join('.')}</span>
-                        <span className="text-[10px] font-black opacity-60 uppercase">Явка: {att}%</span>
-                        <span className="bg-indigo-600 px-3 py-1 rounded-lg text-[9px] font-black uppercase">2 ЧАСА</span>
+                      <div key={i} className="flex flex-col gap-2 p-4 bg-slate-900/50 rounded-2xl border border-white/5">
+                        <div className="flex justify-between items-center">
+                            <span className="font-black text-indigo-400 text-sm">{r.date.split('-').reverse().join('.')}</span>
+                            <span className="text-[10px] font-black opacity-60 uppercase">Явка: {att}%</span>
+                        </div>
+                        {/* ОТОБРАЖЕНИЕ ТЕМЫ В ИСТОРИИ */}
+                        {r.topic ? (
+                            <div className="text-xs font-bold text-white pl-2 border-l-2 border-indigo-500">{r.topic}</div>
+                        ) : <div className="text-[10px] text-white/20 italic pl-2">Без темы</div>}
+                        {r.notes && <div className="text-[10px] text-white/40 italic pl-2">{r.notes}</div>}
                       </div>
                     )
                   })}
               </div>
               <div className="p-6 bg-slate-900/50 text-center">
-                <div className="text-[10px] font-black uppercase text-indigo-400 opacity-40 mb-4 tracking-widest">Всего вычитано: {records.filter(r => r.subject === historySubject && r.group === activeGroup).length * 2} часа(ов)</div>
-                <button onClick={() => setHistorySubject(null)} className="w-full bg-slate-800 p-4 rounded-2xl font-black uppercase text-xs">Закрыть историю</button>
+                <div className="text-[10px] font-black uppercase text-indigo-400 opacity-40 mb-4 tracking-widest">Всего вычитано: {records.filter(r => r.subject === historySubject && r.group === activeGroup).length * 2} акад. часа(ов)</div>
+                <button onClick={() => setHistorySubject(null)} className="w-full bg-slate-800 p-4 rounded-2xl font-black uppercase text-xs">Закрыть</button>
               </div>
             </div>
           </div>
