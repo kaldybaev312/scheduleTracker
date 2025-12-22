@@ -3,8 +3,8 @@ import * as XLSX from 'xlsx';
 
 function App() {
   // --- СОСТОЯНИЯ ---
-  const [groups, setGroups] = useState(() => JSON.parse(localStorage.getItem('groups_v17')) || [{name: "Группа 1", totalStudents: 25}]);
-  const [subjects, setSubjects] = useState(() => JSON.parse(localStorage.getItem('subj_v17')) || []);
+  const [groups, setGroups] = useState(() => JSON.parse(localStorage.getItem('groups_v18')) || [{name: "Группа 1", totalStudents: 25}]);
+  const [subjects, setSubjects] = useState(() => JSON.parse(localStorage.getItem('subj_v18')) || []);
   const [records, setRecords] = useState([]);
   const [templates, setTemplates] = useState([]);
   
@@ -16,6 +16,7 @@ function App() {
   const [currentTab, setCurrentTab] = useState('schedule'); 
   const [historySubject, setHistorySubject] = useState(null);
 
+  // Форма записи
   const [form, setForm] = useState({ 
     subject: '', lessonNumber: '', students: '', topic: '', notes: '', type: 'Лекция', hours: 2 
   });
@@ -35,8 +36,8 @@ function App() {
 
   // Сохранение
   useEffect(() => {
-    localStorage.setItem('groups_v17', JSON.stringify(groups));
-    localStorage.setItem('subj_v17', JSON.stringify(subjects));
+    localStorage.setItem('groups_v18', JSON.stringify(groups));
+    localStorage.setItem('subj_v18', JSON.stringify(subjects));
   }, [groups, subjects]);
 
   useEffect(() => { fetchData(); }, [activeGroup]);
@@ -55,7 +56,7 @@ function App() {
     setLoading(false);
   }
 
-  // --- АНАЛИТИКА (ГЛОБАЛЬНАЯ) ---
+  // --- АНАЛИТИКА ---
   const stats = useMemo(() => {
     const groupRecs = records.filter(r => r.group === activeGroup);
     
@@ -80,8 +81,7 @@ function App() {
     return { totalHours, lecHours, poHours, ppHours, attendance, subjectHours: subjH, count: groupRecs.length };
   }, [records, activeGroup, groups]);
 
-  // --- ПОДСЧЕТ ДЛЯ ИСТОРИИ (НОВОЕ) ---
-  // Считаем часы только для выбранного предмета в модальном окне
+  // --- ИСТОРИЯ ---
   const historyStats = useMemo(() => {
     if (!historySubject) return { count: 0, hours: 0 };
     const subRecs = records.filter(r => r.subject === historySubject && r.group === activeGroup);
@@ -99,7 +99,6 @@ function App() {
     let dow = dObj.getDay() || 7;
     const dTemps = templates.filter(t => t.dayOfWeek === dow && t.subject);
     if(!dTemps.length) return alert("Шаблон пуст");
-    
     for (const t of dTemps) {
       await fetch('/api/schedule', {
         method: 'POST',
@@ -136,14 +135,62 @@ function App() {
     }
   };
 
-  const exportExcel = () => {
+  // 1. ОБЫЧНЫЙ EXCEL (Подробный журнал)
+  const exportFullExcel = () => {
     const data = records.filter(r => r.group === activeGroup).map(r => ({
-      "Дата": r.date, "Пара": r.lessonNumber, "Тип": r.type, "Предмет": r.subject, "Тема": r.topic, "ДЗ": r.notes, "Часы": r.hours, "Явка": r.studentsPresent
+      "Дата": r.date, "Пара": r.lessonNumber, "Тип": r.type, "Предмет": r.subject, "Тема": r.topic, "Заметки": r.notes, "Часы": r.hours, "Явка": r.studentsPresent
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Журнал");
-    XLSX.writeFile(wb, `Journal_${activeGroup}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, "Полный Журнал");
+    XLSX.writeFile(wb, `Full_Journal_${activeGroup}.xlsx`);
+  };
+
+  // 2. БУМАЖНЫЙ ФОРМАТ (По колонкам) - КАК В ТВОЕМ ПРИМЕРЕ
+  const exportToPaper = () => {
+    const groupRecs = records.filter(r => r.group === activeGroup);
+    // Получаем уникальные предметы
+    const uniqueSubjects = [...new Set(groupRecs.map(r => r.subject))];
+    
+    // Собираем данные по колонкам
+    const columnData = {};
+    let maxRows = 0;
+
+    uniqueSubjects.forEach(subj => {
+        // Берем все уроки по этому предмету, сортируем по дате
+        const lessons = groupRecs
+            .filter(r => r.subject === subj)
+            .sort((a, b) => a.date.localeCompare(b.date))
+            .map(r => {
+                // Преобразуем дату в RU формат: 25.12.2025
+                const dateRu = r.date.split('-').reverse().join('.');
+                // Формат ячейки: Дата (Тип Часы)
+                return `${dateRu} (${r.type} ${r.hours}ч)`; 
+            });
+        
+        columnData[subj] = lessons;
+        if (lessons.length > maxRows) maxRows = lessons.length;
+    });
+
+    // Трансформируем в строки для Excel (матрица)
+    const excelRows = [];
+    for (let i = 0; i < maxRows; i++) {
+        const rowObj = {};
+        uniqueSubjects.forEach(subj => {
+            rowObj[subj] = columnData[subj][i] || ""; // Если урока нет, пустая строка
+        });
+        excelRows.push(rowObj);
+    }
+
+    const ws = XLSX.utils.json_to_sheet(excelRows);
+    
+    // Задаем ширину колонок (примерно 20 символов)
+    const wscols = uniqueSubjects.map(s => ({wch: 25}));
+    ws['!cols'] = wscols;
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Для печати");
+    XLSX.writeFile(wb, `Print_Version_${activeGroup}.xlsx`);
   };
 
   const calendarDays = (() => {
@@ -173,7 +220,7 @@ function App() {
         
         {/* HEADER */}
         <header className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 py-4 border-b border-indigo-500/20">
-          <h1 className="text-3xl font-black text-indigo-500 italic tracking-tighter">EDU.LOG <span className="text-[10px] not-italic text-slate-500">v17 Final</span></h1>
+          <h1 className="text-3xl font-black text-indigo-500 italic tracking-tighter">EDU.LOG <span className="text-[10px] not-italic text-slate-500">v18</span></h1>
           <nav className="flex bg-slate-800/50 p-1 rounded-xl w-full md:w-auto overflow-x-auto no-scrollbar">
             {['schedule', 'dashboard', 'settings'].map(t => (
               <button key={t} onClick={() => setCurrentTab(t)} className={`flex-1 md:flex-none px-6 py-2.5 rounded-lg text-[10px] font-black uppercase whitespace-nowrap transition-all ${currentTab === t ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500'}`}>
@@ -211,15 +258,25 @@ function App() {
                </div>
             </div>
 
+            {/* БЛОК КНОПОК СКАЧИВАНИЯ */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button onClick={exportFullExcel} className="bg-slate-700 p-4 rounded-[2rem] font-black uppercase text-xs text-white shadow-lg flex items-center justify-center gap-2 hover:bg-slate-600 transition-colors">
+                    📄 Полный отчет (База)
+                </button>
+                <button onClick={exportToPaper} className="bg-emerald-600 p-4 rounded-[2rem] font-black uppercase text-xs text-white shadow-lg flex items-center justify-center gap-2 hover:bg-emerald-500 transition-colors">
+                    🖨 Скачать для печати (По предметам)
+                </button>
+            </div>
+
             <div className={`${cardClass} p-6 md:p-8 rounded-[3rem]`}>
-              <h3 className="font-black uppercase mb-6 text-indigo-400 italic">Предметы (Нажми для истории)</h3>
+              <h3 className="font-black uppercase mb-6 text-indigo-400 italic">Сводка по предметам</h3>
               <div className="grid gap-2">
                 {Object.entries(stats.subjectHours).length > 0 ? Object.entries(stats.subjectHours).map(([name, hours]) => (
                   <button key={name} onClick={() => setHistorySubject(name)} className="w-full flex justify-between items-center p-4 bg-slate-900/40 rounded-2xl border border-white/5 hover:border-indigo-500/50 transition-all group">
                     <span className="font-bold text-xs uppercase text-left group-hover:text-indigo-400">{name}</span>
                     <div className="text-right">
                       <span className="font-black text-indigo-400 block">{hours} ч.</span>
-                      <span className="text-[9px] opacity-20 uppercase">Открыть →</span>
+                      <span className="text-[9px] opacity-20 uppercase">История →</span>
                     </div>
                   </button>
                 )) : <div className="text-center py-10 opacity-20 font-black uppercase italic">Нет данных</div>}
@@ -228,10 +285,9 @@ function App() {
           </div>
         )}
 
-        {/* --- ПЛАН (КАЛЕНДАРЬ + СПИСОК) --- */}
+        {/* --- ПЛАН --- */}
         {currentTab === 'schedule' && (
           <div className="grid lg:grid-cols-12 gap-8 animate-in slide-in-from-bottom-4 duration-500">
-            {/* КАЛЕНДАРЬ */}
             <div className="lg:col-span-4">
               <div className={`${cardClass} p-6 rounded-[2.5rem]`}>
                 <div className="flex justify-between items-center mb-6">
@@ -264,7 +320,6 @@ function App() {
               </div>
             </div>
 
-            {/* СПИСОК И ФОРМА */}
             <div className="lg:col-span-8 space-y-6">
               <div className={`${cardClass} p-6 md:p-8 rounded-[3rem] border-2 border-indigo-500/10`}>
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
@@ -278,7 +333,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* 4 КНОПКИ ТИПОВ УРОКА */}
                 <div className="grid grid-cols-4 gap-2 mb-4">
                     <button onClick={() => handleTypeSelect('Лекция', 2)} className={`py-3 rounded-xl text-[9px] font-black uppercase transition-all ${form.type === 'Лекция' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-800 text-slate-500 hover:text-white'}`}>Лекция 2ч</button>
                     <button onClick={() => handleTypeSelect('ПО', 6)} className={`py-3 rounded-xl text-[9px] font-black uppercase transition-all ${form.type === 'ПО' && form.hours === 6 ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-500 hover:text-white'}`}>ПО 6ч</button>
@@ -288,12 +342,10 @@ function App() {
 
                 <form onSubmit={async (e) => {
                   e.preventDefault(); if(!form.subject) return;
-                  // Отправляем на сервер
                   await fetch('/api/schedule', { method:'POST', headers:{'Content-Type':'application/json'}, 
                     body: JSON.stringify({...form, group:activeGroup, date:selectedDate, lessonNumber: parseInt(form.lessonNumber || 1), studentsPresent: parseInt(form.students || 0), type: form.type, hours: parseInt(form.hours) }) 
                   });
                   fetchData();
-                  // Сброс формы
                   setForm(prev => ({...prev, subject:'', students:'', topic: '', notes: '', type: 'Лекция', hours: 2}));
                 }} className="space-y-3">
                   <div className="grid grid-cols-12 gap-3">
@@ -319,7 +371,6 @@ function App() {
                       <div className="flex items-center gap-3">
                         <div className="text-xl font-black text-slate-500 w-6">{r.lessonNumber}</div>
                         <button onClick={() => setHistorySubject(r.subject)} className="font-black text-lg uppercase tracking-tight hover:text-white text-left transition-all">{r.subject}</button>
-                        {/* БЭЙДЖИК ТИПА */}
                         <span className={`text-[8px] font-black uppercase px-2 py-1 rounded ml-2 ${r.type === 'ПО' ? 'bg-emerald-500 text-black' : r.type === 'ПП' ? 'bg-amber-500 text-black' : 'bg-indigo-600 text-white'}`}>
                            {r.type} {r.hours}ч
                         </span>
@@ -343,10 +394,9 @@ function App() {
           </div>
         )}
 
-        {/* --- ВКЛАДКА: ОПЦИИ --- */}
+        {/* --- ОПЦИИ --- */}
         {currentTab === 'settings' && (
           <div className="grid lg:grid-cols-3 gap-6 animate-in slide-in-from-top-4 duration-500">
-            {/* Группы */}
             <div className={`${cardClass} p-6 rounded-[2rem]`}>
               <h2 className="text-lg font-black uppercase mb-4 text-indigo-400 italic">Группы</h2>
               <div className="space-y-3 mb-4">
@@ -364,7 +414,6 @@ function App() {
               </div>
             </div>
 
-            {/* Библиотека */}
             <div className={`${cardClass} p-6 rounded-[2rem]`}>
               <h2 className="text-lg font-black uppercase mb-4 text-emerald-400 italic">Библиотека</h2>
               <div className="space-y-3 mb-4">
@@ -380,7 +429,6 @@ function App() {
               </div>
             </div>
 
-            {/* План */}
             <div className={`${cardClass} p-6 rounded-[2rem]`}>
               <h2 className="text-lg font-black uppercase mb-4 text-amber-500 italic">План (4 пары)</h2>
               <div className="space-y-4 max-h-[400px] overflow-y-auto pr-1">
@@ -407,7 +455,7 @@ function App() {
           </div>
         )}
 
-        {/* --- МОДАЛКА: ИСТОРИЯ (ФИНАЛ) --- */}
+        {/* --- МОДАЛКА ИСТОРИИ --- */}
         {historySubject && (
           <div className="fixed inset-0 bg-[#0f172a]/95 backdrop-blur-md flex items-end md:items-center justify-center z-[100] p-0 md:p-4 animate-in fade-in duration-300">
             <div className="bg-[#1e293b] w-full max-w-2xl rounded-t-[2.5rem] md:rounded-[3rem] border border-indigo-500/30 overflow-hidden shadow-2xl">
@@ -426,7 +474,6 @@ function App() {
                         <div className="flex justify-between items-center">
                             <div className="flex gap-2 items-center">
                                 <span className="font-black text-white text-sm">{r.date.split('-').reverse().join('.')}</span>
-                                {/* ТИП УРОКА В ИСТОРИИ */}
                                 <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded ml-1 ${r.type === 'ПО' ? 'bg-emerald-500 text-black' : r.type === 'ПП' ? 'bg-amber-500 text-black' : 'bg-indigo-600 text-white'}`}>
                                    {r.type} {r.hours}ч
                                 </span>
@@ -441,7 +488,6 @@ function App() {
                     )
                   })}
               </div>
-              {/* ПОДВАЛ ИСТОРИИ: СУММА ЧАСОВ */}
               <div className="p-6 bg-slate-900/50 text-center flex flex-col gap-2">
                  <div className="text-[10px] font-black uppercase text-indigo-400 opacity-60 tracking-widest">
                     Всего: {historyStats.count} занятий | {historyStats.hours} часов
