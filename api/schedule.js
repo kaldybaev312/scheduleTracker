@@ -6,6 +6,11 @@ const RecordSchema = new mongoose.Schema({
   group: String,
   date: String,
   lessonNumber: Number,
+  studentsPresent: Number,
+  topic: String,       
+  notes: String,       
+  type: String,        
+  hours: Number        
 }, { timestamps: true });
 
 const Record = mongoose.models.Record || mongoose.model('Record', RecordSchema);
