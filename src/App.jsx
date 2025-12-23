@@ -2,13 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 
 function App() {
-  // --- СОСТОЯНИЯ ---
-  const [groups, setGroups] = useState(() => JSON.parse(localStorage.getItem('groups_v18')) || [{name: "Группа 1", totalStudents: 25}]);
-  const [subjects, setSubjects] = useState(() => JSON.parse(localStorage.getItem('subj_v18')) || []);
+  // --- СОСТОЯНИЯ (ТЕПЕРЬ БЕЗ LOCALSTORAGE) ---
+  const [groups, setGroups] = useState([]); // Данные придут с сервера
+  const [subjects, setSubjects] = useState([]); // Данные придут с сервера
   const [records, setRecords] = useState([]);
   const [templates, setTemplates] = useState([]);
   
-  const [activeGroup, setActiveGroup] = useState(groups[0]?.name || "");
+  const [activeGroup, setActiveGroup] = useState("");
   const [darkMode, setDarkMode] = useState(true);
   const [viewDate, setViewDate] = useState(new Date()); 
   const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA')); 
@@ -16,50 +16,131 @@ function App() {
   const [currentTab, setCurrentTab] = useState('schedule'); 
   const [historySubject, setHistorySubject] = useState(null);
 
-  // Форма записи
   const [form, setForm] = useState({ 
     subject: '', lessonNumber: '', students: '', topic: '', notes: '', type: 'Лекция', hours: 2 
   });
   
-  const [newGroup, setNewGroup] = useState({ name: '', total: '' });
+  const [newGroup, setNewGroup] = useState({ name: '', total: '', po: '6' });
   const [newSubj, setNewSubj] = useState({ name: '', target: 'all' });
 
-  // --- АВТО-НУМЕРАЦИЯ ---
+  // --- ЗАГРУЗКА ВСЕХ ДАННЫХ С СЕРВЕРА ---
+  useEffect(() => { 
+    // Запускаем 1 раз при старте
+    fetchAllData(); 
+  }, []);
+
+  // Если активная группа не выбрана, но группы загрузились — выбираем первую
+  useEffect(() => {
+    if (!activeGroup && groups.length > 0) {
+      setActiveGroup(groups[0].name);
+    }
+  }, [groups, activeGroup]);
+
+  // Перезагрузка при смене группы (только шаблонов)
+  useEffect(() => {
+    if(activeGroup) fetchTemplatesAndRecords();
+  }, [activeGroup]);
+
+  // АВТО-НУМЕРАЦИЯ
   useEffect(() => {
     const existing = records.filter(r => r.date === selectedDate && r.group === activeGroup);
     setForm(prev => ({ 
-      ...prev, 
-      lessonNumber: existing.length + 1,
-      type: 'Лекция', hours: 2, topic: '', notes: ''
+      ...prev, lessonNumber: existing.length + 1, type: 'Лекция', hours: 2, topic: '', notes: ''
     }));
   }, [selectedDate, records, activeGroup]);
 
-  // Сохранение
-  useEffect(() => {
-    localStorage.setItem('groups_v18', JSON.stringify(groups));
-    localStorage.setItem('subj_v18', JSON.stringify(subjects));
-  }, [groups, subjects]);
-
-  useEffect(() => { fetchData(); }, [activeGroup]);
-
-  async function fetchData() {
+  // --- API ЗАПРОСЫ ---
+  
+  async function fetchAllData() {
+    setLoading(true);
     try {
-      const [recRes, tempRes] = await Promise.all([
-        fetch('/api/schedule'),
-        fetch(`/api/templates?group=${activeGroup}`)
+      // Запрашиваем всё сразу: Группы, Предметы, Расписание
+      const [gRes, sRes, rRes] = await Promise.all([
+        fetch('/api/groups'),   // <--- ЭТО НУЖНО СОЗДАТЬ
+        fetch('/api/subjects'), // <--- ЭТО НУЖНО СОЗДАТЬ
+        fetch('/api/schedule')
       ]);
-      const rData = await recRes.json();
-      const tData = await tempRes.json();
+
+      const gData = await gRes.json();
+      const sData = await sRes.json();
+      const rData = await rRes.json();
+
+      setGroups(Array.isArray(gData) ? gData : []);
+      setSubjects(Array.isArray(sData) ? sData : []);
       setRecords(Array.isArray(rData) ? rData : []);
-      setTemplates(Array.isArray(tData) ? tData : []);
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error("Ошибка загрузки:", err); }
     setLoading(false);
   }
 
-  // --- АНАЛИТИКА ---
+  async function fetchTemplatesAndRecords() {
+    try {
+        const [recRes, tempRes] = await Promise.all([
+            fetch('/api/schedule'),
+            fetch(`/api/templates?group=${activeGroup}`)
+        ]);
+        const rData = await recRes.json();
+        const tData = await tempRes.json();
+        setRecords(Array.isArray(rData) ? rData : []);
+        setTemplates(Array.isArray(tData) ? tData : []);
+    } catch(e) { console.error(e); }
+  }
+
+  // --- УПРАВЛЕНИЕ ГРУППАМИ ЧЕРЕЗ API ---
+  const addGroup = async () => {
+    if(!newGroup.name || !newGroup.total) return;
+    const body = { 
+        name: newGroup.name, 
+        totalStudents: parseInt(newGroup.total), 
+        poHours: parseInt(newGroup.po || 6) 
+    };
+    
+    // Сохраняем в БД
+    await fetch('/api/groups', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+    });
+    
+    // Обновляем локально
+    setGroups([...groups, body]);
+    setNewGroup({name:'', total:'', po:'6'});
+    if(groups.length === 0) setActiveGroup(body.name);
+  };
+
+  const deleteGroup = async (name) => {
+    if(groups.length <= 1) return alert("Нельзя удалить последнюю группу");
+    if(confirm(`Удалить группу ${name}?`)) {
+      await fetch(`/api/groups?name=${name}`, { method: 'DELETE' }); // Удаляем из БД
+      
+      const filtered = groups.filter(g => g.name !== name);
+      setGroups(filtered);
+      if(activeGroup === name) setActiveGroup(filtered[0].name);
+    }
+  };
+
+  // --- УПРАВЛЕНИЕ ПРЕДМЕТАМИ ЧЕРЕЗ API ---
+  const addSubject = async () => {
+    if(!newSubj.name) return;
+    const body = { name: newSubj.name, targetGroup: newSubj.target };
+    
+    await fetch('/api/subjects', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+    });
+
+    setSubjects([...subjects, body]);
+    setNewSubj({name:'', target:'all'});
+  };
+
+  const deleteSubject = async (name) => {
+      await fetch(`/api/subjects?name=${name}`, { method: 'DELETE' });
+      setSubjects(subjects.filter(s => s.name !== name));
+  };
+
+  // --- ОСТАЛЬНЫЕ ФУНКЦИИ БЕЗ ИЗМЕНЕНИЙ ---
   const stats = useMemo(() => {
     const groupRecs = records.filter(r => r.group === activeGroup);
-    
     let lecHours = 0, poHours = 0, ppHours = 0, totalHours = 0;
     const subjH = {};
 
@@ -81,7 +162,6 @@ function App() {
     return { totalHours, lecHours, poHours, ppHours, attendance, subjectHours: subjH, count: groupRecs.length };
   }, [records, activeGroup, groups]);
 
-  // --- ИСТОРИЯ ---
   const historyStats = useMemo(() => {
     if (!historySubject) return { count: 0, hours: 0 };
     const subRecs = records.filter(r => r.subject === historySubject && r.group === activeGroup);
@@ -89,10 +169,7 @@ function App() {
     return { count: subRecs.length, hours: h };
   }, [historySubject, records, activeGroup]);
 
-  // --- ФУНКЦИИ ---
-  const handleTypeSelect = (type, hours) => {
-    setForm(prev => ({ ...prev, type, hours }));
-  };
+  const handleTypeSelect = (type, hours) => setForm(prev => ({ ...prev, type, hours }));
 
   const applyTemplate = async () => {
     const dObj = new Date(selectedDate);
@@ -109,7 +186,7 @@ function App() {
         })
       });
     }
-    fetchData();
+    fetchTemplatesAndRecords(); // Обновляем
   };
 
   const copyDay = async (target) => {
@@ -126,71 +203,41 @@ function App() {
     alert(`Скопировано в ${target}`);
   };
 
-  const deleteGroup = (name) => {
-    if(groups.length <= 1) return alert("Нельзя удалить последнюю группу");
-    if(confirm(`Удалить группу ${name}?`)) {
-      const filtered = groups.filter(g => g.name !== name);
-      setGroups(filtered);
-      if(activeGroup === name) setActiveGroup(filtered[0].name);
-    }
-  };
-
-  // 1. ОБЫЧНЫЙ EXCEL (Подробный журнал)
+  // EXPORT FUNCTIONS
   const exportFullExcel = () => {
     const data = records.filter(r => r.group === activeGroup).map(r => ({
       "Дата": r.date, "Пара": r.lessonNumber, "Тип": r.type, "Предмет": r.subject, "Тема": r.topic, "Заметки": r.notes, "Часы": r.hours, "Явка": r.studentsPresent
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Полный Журнал");
-    XLSX.writeFile(wb, `Full_Journal_${activeGroup}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, "База Данных");
+    XLSX.writeFile(wb, `Database_${activeGroup}.xlsx`);
   };
 
-  // 2. БУМАЖНЫЙ ФОРМАТ (По колонкам) - КАК В ТВОЕМ ПРИМЕРЕ
-  const exportToPaper = () => {
+  const exportMatrixExcel = () => {
     const groupRecs = records.filter(r => r.group === activeGroup);
-    // Получаем уникальные предметы
     const uniqueSubjects = [...new Set(groupRecs.map(r => r.subject))];
-    
-    // Собираем данные по колонкам
-    const columnData = {};
+    const columns = {};
     let maxRows = 0;
-
     uniqueSubjects.forEach(subj => {
-        // Берем все уроки по этому предмету, сортируем по дате
         const lessons = groupRecs
             .filter(r => r.subject === subj)
             .sort((a, b) => a.date.localeCompare(b.date))
-            .map(r => {
-                // Преобразуем дату в RU формат: 25.12.2025
-                const dateRu = r.date.split('-').reverse().join('.');
-                // Формат ячейки: Дата (Тип Часы)
-                return `${dateRu} (${r.type} ${r.hours}ч)`; 
-            });
-        
-        columnData[subj] = lessons;
+            .map(r => `${r.date.split('-').reverse().join('.')} (${r.type} ${r.hours}ч)`);
+        columns[subj] = lessons;
         if (lessons.length > maxRows) maxRows = lessons.length;
     });
-
-    // Трансформируем в строки для Excel (матрица)
     const excelRows = [];
     for (let i = 0; i < maxRows; i++) {
         const rowObj = {};
-        uniqueSubjects.forEach(subj => {
-            rowObj[subj] = columnData[subj][i] || ""; // Если урока нет, пустая строка
-        });
+        uniqueSubjects.forEach(subj => { rowObj[subj] = columns[subj][i] || ""; });
         excelRows.push(rowObj);
     }
-
     const ws = XLSX.utils.json_to_sheet(excelRows);
-    
-    // Задаем ширину колонок (примерно 20 символов)
-    const wscols = uniqueSubjects.map(s => ({wch: 25}));
-    ws['!cols'] = wscols;
-
+    ws['!cols'] = uniqueSubjects.map(() => ({wch: 25}));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Для печати");
-    XLSX.writeFile(wb, `Print_Version_${activeGroup}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, "По предметам");
+    XLSX.writeFile(wb, `Print_Layout_${activeGroup}.xlsx`);
   };
 
   const calendarDays = (() => {
@@ -212,7 +259,7 @@ function App() {
   const themeClass = darkMode ? "bg-[#0f172a] text-white" : "bg-gray-50 text-slate-900";
   const cardClass = darkMode ? "bg-[#1e293b] border-slate-700 shadow-xl" : "bg-white border-gray-200 shadow-md";
 
-  if (loading) return <div className="h-screen flex items-center justify-center bg-[#0f172a] text-indigo-500 font-black italic text-2xl animate-pulse">EDU.LOG LOADING...</div>;
+  if (loading) return <div className="h-screen flex items-center justify-center bg-[#0f172a] text-indigo-500 font-black italic text-2xl animate-pulse">EDU.LOG SYNCING...</div>;
 
   return (
     <div className={`min-h-screen ${themeClass} font-sans pb-20 transition-all`}>
@@ -220,7 +267,7 @@ function App() {
         
         {/* HEADER */}
         <header className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 py-4 border-b border-indigo-500/20">
-          <h1 className="text-3xl font-black text-indigo-500 italic tracking-tighter">EDU.LOG <span className="text-[10px] not-italic text-slate-500">v18</span></h1>
+          <h1 className="text-3xl font-black text-indigo-500 italic tracking-tighter">EDU.LOG <span className="text-[10px] not-italic text-slate-500">v20 Cloud</span></h1>
           <nav className="flex bg-slate-800/50 p-1 rounded-xl w-full md:w-auto overflow-x-auto no-scrollbar">
             {['schedule', 'dashboard', 'settings'].map(t => (
               <button key={t} onClick={() => setCurrentTab(t)} className={`flex-1 md:flex-none px-6 py-2.5 rounded-lg text-[10px] font-black uppercase whitespace-nowrap transition-all ${currentTab === t ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500'}`}>
@@ -258,13 +305,12 @@ function App() {
                </div>
             </div>
 
-            {/* БЛОК КНОПОК СКАЧИВАНИЯ */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <button onClick={exportFullExcel} className="bg-slate-700 p-4 rounded-[2rem] font-black uppercase text-xs text-white shadow-lg flex items-center justify-center gap-2 hover:bg-slate-600 transition-colors">
-                    📄 Полный отчет (База)
+                    📄 Полный отчет
                 </button>
-                <button onClick={exportToPaper} className="bg-emerald-600 p-4 rounded-[2rem] font-black uppercase text-xs text-white shadow-lg flex items-center justify-center gap-2 hover:bg-emerald-500 transition-colors">
-                    🖨 Скачать для печати (По предметам)
+                <button onClick={exportMatrixExcel} className="bg-emerald-600 p-4 rounded-[2rem] font-black uppercase text-xs text-white shadow-lg flex items-center justify-center gap-2 hover:bg-emerald-500 transition-colors">
+                    🖨 Скачать Таблицу (Как в макете)
                 </button>
             </div>
 
@@ -345,7 +391,7 @@ function App() {
                   await fetch('/api/schedule', { method:'POST', headers:{'Content-Type':'application/json'}, 
                     body: JSON.stringify({...form, group:activeGroup, date:selectedDate, lessonNumber: parseInt(form.lessonNumber || 1), studentsPresent: parseInt(form.students || 0), type: form.type, hours: parseInt(form.hours) }) 
                   });
-                  fetchData();
+                  fetchTemplatesAndRecords();
                   setForm(prev => ({...prev, subject:'', students:'', topic: '', notes: '', type: 'Лекция', hours: 2}));
                 }} className="space-y-3">
                   <div className="grid grid-cols-12 gap-3">
@@ -384,7 +430,7 @@ function App() {
                     <button onClick={async () => {
                       if(confirm("Удалить?")) {
                         await fetch(`/api/schedule?id=${r._id}`, {method:'DELETE'});
-                        setRecords(records.filter(x => x._id !== r._id));
+                        fetchTemplatesAndRecords();
                       }
                     }} className="text-red-500 font-bold px-2 md:opacity-0 group-hover:opacity-100 transition-all uppercase text-[10px] self-start mt-2">✕</button>
                   </div>
@@ -402,7 +448,7 @@ function App() {
               <div className="space-y-3 mb-4">
                 <input className="w-full bg-[#0f172a] border border-slate-700 p-3 rounded-xl text-xs" placeholder="Имя группы" value={newGroup.name} onChange={e => setNewGroup({...newGroup, name:e.target.value})} />
                 <input type="number" className="w-full bg-[#0f172a] border border-slate-700 p-3 rounded-xl text-xs" placeholder="Всего студентов" value={newGroup.total} onChange={e => setNewGroup({...newGroup, total:e.target.value})} />
-                <button onClick={() => {if(newGroup.name && newGroup.total){setGroups([...groups, {name:newGroup.name, totalStudents:parseInt(newGroup.total)}]); setNewGroup({name:'', total:''});}}} className="w-full bg-indigo-600 p-3 rounded-xl font-black uppercase text-xs">Добавить</button>
+                <button onClick={addGroup} className="w-full bg-indigo-600 p-3 rounded-xl font-black uppercase text-xs">Добавить</button>
               </div>
               <div className="space-y-2">
                 {groups.map(g => (
@@ -422,10 +468,10 @@ function App() {
                   <option value="all">Для всех</option>
                   {groups.map(g => <option key={g.name} value={g.name}>{g.name}</option>)}
                 </select>
-                <button onClick={() => {if(newSubj.name){setSubjects([...subjects, {name:newSubj.name, targetGroup:newSubj.target}]); setNewSubj({name:'', target:'all'});}}} className="w-full bg-emerald-600 p-3 rounded-xl font-black uppercase text-xs">В библиотеку</button>
+                <button onClick={addSubject} className="w-full bg-emerald-600 p-3 rounded-xl font-black uppercase text-xs">В библиотеку</button>
               </div>
               <div className="max-h-40 overflow-y-auto space-y-2 pr-1">
-                {subjects.map((s, i) => (<div key={i} className="flex justify-between p-2 bg-slate-900/40 rounded-lg text-[10px]"><span>{s.name} <span className="opacity-20">({s.targetGroup})</span></span><button onClick={() => setSubjects(subjects.filter((_, idx) => idx !== i))} className="text-red-500">✕</button></div>))}
+                {subjects.map((s, i) => (<div key={i} className="flex justify-between p-2 bg-slate-900/40 rounded-lg text-[10px]"><span>{s.name} <span className="opacity-20">({s.targetGroup})</span></span><button onClick={() => deleteSubject(s.name)} className="text-red-500">✕</button></div>))}
               </div>
             </div>
 
@@ -440,7 +486,7 @@ function App() {
                         const t = templates.find(x => x.dayOfWeek === d && x.lessonNumber === l);
                         return (
                           <select key={l} className="bg-slate-800 p-1 rounded border border-slate-700 text-[9px]" value={t?.subject || ""} onChange={(e) => {
-                            fetch('/api/templates', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ group: activeGroup, dayOfWeek: d, lessonNumber: l, subject: e.target.value }) }).then(() => fetchData());
+                            fetch('/api/templates', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ group: activeGroup, dayOfWeek: d, lessonNumber: l, subject: e.target.value }) }).then(() => fetchTemplatesAndRecords());
                           }}>
                             <option value="">Пара {l}</option>
                             {subjects.filter(s => s.targetGroup === 'all' || s.targetGroup === activeGroup).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
