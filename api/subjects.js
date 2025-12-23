@@ -1,20 +1,20 @@
-import clientPromise from '../lib/mongodb';
+import clientPromise from '../lib/mongodb.js';
 
 export default async function handler(req, res) {
-  const client = await clientPromise;
-  const db = client.db("edulog");
-  const collection = db.collection("subjects");
+    const client = await clientPromise;
+    const db = client.db("edulog");
 
-  if (req.method === 'GET') {
-    const subjects = await collection.find({}).toArray();
-    res.status(200).json(subjects);
-  } else if (req.method === 'POST') {
-    const subject = req.body;
-    await collection.insertOne(subject);
-    res.status(201).json({ message: 'Saved' });
-  } else if (req.method === 'DELETE') {
-    const { name } = req.query;
-    await collection.deleteOne({ name });
-    res.status(200).json({ message: 'Deleted' });
-  }
+    if (req.method === 'GET') {
+        const subjects = await db.collection("subjects").find({}).toArray();
+        res.json(subjects);
+    } 
+    else if (req.method === 'POST') {
+        await db.collection("subjects").insertOne(req.body);
+        res.json({ status: 'ok' });
+    }
+    else if (req.method === 'DELETE') {
+        const { name } = req.query;
+        await db.collection("subjects").deleteOne({ name });
+        res.json({ status: 'deleted' });
+    }
 }
