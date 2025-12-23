@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 
 function App() {
-  // --- СОСТОЯНИЯ (ТЕПЕРЬ БЕЗ LOCALSTORAGE) ---
-  const [groups, setGroups] = useState([]); // Данные придут с сервера
-  const [subjects, setSubjects] = useState([]); // Данные придут с сервера
+  // --- СОСТОЯНИЯ ---
+  const [groups, setGroups] = useState([]); 
+  const [subjects, setSubjects] = useState([]); 
   const [records, setRecords] = useState([]);
   const [templates, setTemplates] = useState([]);
   
@@ -23,20 +23,15 @@ function App() {
   const [newGroup, setNewGroup] = useState({ name: '', total: '', po: '6' });
   const [newSubj, setNewSubj] = useState({ name: '', target: 'all' });
 
-  // --- ЗАГРУЗКА ВСЕХ ДАННЫХ С СЕРВЕРА ---
-  useEffect(() => { 
-    // Запускаем 1 раз при старте
-    fetchAllData(); 
-  }, []);
+  // --- ЗАГРУЗКА ДАННЫХ ---
+  useEffect(() => { fetchAllData(); }, []);
 
-  // Если активная группа не выбрана, но группы загрузились — выбираем первую
   useEffect(() => {
     if (!activeGroup && groups.length > 0) {
       setActiveGroup(groups[0].name);
     }
   }, [groups, activeGroup]);
 
-  // Перезагрузка при смене группы (только шаблонов)
   useEffect(() => {
     if(activeGroup) fetchTemplatesAndRecords();
   }, [activeGroup]);
@@ -49,18 +44,15 @@ function App() {
     }));
   }, [selectedDate, records, activeGroup]);
 
-  // --- API ЗАПРОСЫ ---
-  
+  // --- API ---
   async function fetchAllData() {
     setLoading(true);
     try {
-      // Запрашиваем всё сразу: Группы, Предметы, Расписание
       const [gRes, sRes, rRes] = await Promise.all([
-        fetch('/api/groups'),   // <--- ЭТО НУЖНО СОЗДАТЬ
-        fetch('/api/subjects'), // <--- ЭТО НУЖНО СОЗДАТЬ
+        fetch('/api/groups'),   
+        fetch('/api/subjects'), 
         fetch('/api/schedule')
       ]);
-
       const gData = await gRes.json();
       const sData = await sRes.json();
       const rData = await rRes.json();
@@ -68,7 +60,7 @@ function App() {
       setGroups(Array.isArray(gData) ? gData : []);
       setSubjects(Array.isArray(sData) ? sData : []);
       setRecords(Array.isArray(rData) ? rData : []);
-    } catch (err) { console.error("Ошибка загрузки:", err); }
+    } catch (err) { console.error(err); }
     setLoading(false);
   }
 
@@ -85,23 +77,54 @@ function App() {
     } catch(e) { console.error(e); }
   }
 
-  // --- УПРАВЛЕНИЕ ГРУППАМИ ЧЕРЕЗ API ---
+  // --- МИГРАЦИЯ (ВОССТАНОВЛЕНИЕ ДАННЫХ) ---
+  const migrateLocalData = async () => {
+    if(!confirm("Загрузить данные из памяти этого устройства в Облако? Нажимайте только 1 раз.")) return;
+    
+    // Пытаемся найти старые версии данных
+    const oldGroups = JSON.parse(localStorage.getItem('groups_v19') || localStorage.getItem('groups_v18') || "[]");
+    const oldSubj = JSON.parse(localStorage.getItem('subj_v19') || localStorage.getItem('subj_v18') || "[]");
+
+    if (oldGroups.length === 0 && oldSubj.length === 0) {
+        return alert("В памяти этого устройства нет старых данных.");
+    }
+
+    setLoading(true);
+    try {
+        // 1. Отправляем группы
+        for (const g of oldGroups) {
+            // Проверяем, нет ли уже такой группы, чтобы не дублировать
+            if (!groups.find(x => x.name === g.name)) {
+                await fetch('/api/groups', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ name: g.name, totalStudents: g.totalStudents, poHours: g.poHours || 6 })
+                });
+            }
+        }
+        // 2. Отправляем предметы
+        for (const s of oldSubj) {
+             if (!subjects.find(x => x.name === s.name)) {
+                await fetch('/api/subjects', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ name: s.name, targetGroup: s.targetGroup || 'all' })
+                });
+             }
+        }
+        alert("Успешно! Данные перенесены в облако. Теперь они доступны везде.");
+        fetchAllData(); // Обновляем экран
+    } catch (e) {
+        alert("Ошибка миграции: " + e.message);
+    }
+    setLoading(false);
+  };
+
+  // --- CRUD ФУНКЦИИ ---
   const addGroup = async () => {
     if(!newGroup.name || !newGroup.total) return;
-    const body = { 
-        name: newGroup.name, 
-        totalStudents: parseInt(newGroup.total), 
-        poHours: parseInt(newGroup.po || 6) 
-    };
-    
-    // Сохраняем в БД
-    await fetch('/api/groups', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(body)
-    });
-    
-    // Обновляем локально
+    const body = { name: newGroup.name, totalStudents: parseInt(newGroup.total), poHours: parseInt(newGroup.po || 6) };
+    await fetch('/api/groups', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
     setGroups([...groups, body]);
     setNewGroup({name:'', total:'', po:'6'});
     if(groups.length === 0) setActiveGroup(body.name);
@@ -110,25 +133,17 @@ function App() {
   const deleteGroup = async (name) => {
     if(groups.length <= 1) return alert("Нельзя удалить последнюю группу");
     if(confirm(`Удалить группу ${name}?`)) {
-      await fetch(`/api/groups?name=${name}`, { method: 'DELETE' }); // Удаляем из БД
-      
+      await fetch(`/api/groups?name=${name}`, { method: 'DELETE' });
       const filtered = groups.filter(g => g.name !== name);
       setGroups(filtered);
       if(activeGroup === name) setActiveGroup(filtered[0].name);
     }
   };
 
-  // --- УПРАВЛЕНИЕ ПРЕДМЕТАМИ ЧЕРЕЗ API ---
   const addSubject = async () => {
     if(!newSubj.name) return;
     const body = { name: newSubj.name, targetGroup: newSubj.target };
-    
-    await fetch('/api/subjects', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(body)
-    });
-
+    await fetch('/api/subjects', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
     setSubjects([...subjects, body]);
     setNewSubj({name:'', target:'all'});
   };
@@ -138,7 +153,7 @@ function App() {
       setSubjects(subjects.filter(s => s.name !== name));
   };
 
-  // --- ОСТАЛЬНЫЕ ФУНКЦИИ БЕЗ ИЗМЕНЕНИЙ ---
+  // --- ОСТАЛЬНОЕ ---
   const stats = useMemo(() => {
     const groupRecs = records.filter(r => r.group === activeGroup);
     let lecHours = 0, poHours = 0, ppHours = 0, totalHours = 0;
@@ -150,7 +165,6 @@ function App() {
         if (r.type === 'ПО') poHours += h;
         else if (r.type === 'ПП') ppHours += h;
         else lecHours += h;
-
         subjH[r.subject] = (subjH[r.subject] || 0) + h;
     });
 
@@ -158,7 +172,6 @@ function App() {
     const totalPresent = groupRecs.reduce((acc, r) => acc + (parseInt(r.studentsPresent) || 0), 0);
     const potential = groupRecs.length * (currentG?.totalStudents || 1);
     const attendance = potential > 0 ? ((totalPresent / potential) * 100).toFixed(1) : 0;
-    
     return { totalHours, lecHours, poHours, ppHours, attendance, subjectHours: subjH, count: groupRecs.length };
   }, [records, activeGroup, groups]);
 
@@ -178,15 +191,11 @@ function App() {
     if(!dTemps.length) return alert("Шаблон пуст");
     for (const t of dTemps) {
       await fetch('/api/schedule', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ 
-          subject: t.subject, group: activeGroup, date: selectedDate, lessonNumber: t.lessonNumber, 
-          studentsPresent: 0, topic: '', notes: '', type: 'Лекция', hours: 2 
-        })
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ subject: t.subject, group: activeGroup, date: selectedDate, lessonNumber: t.lessonNumber, studentsPresent: 0, topic: '', notes: '', type: 'Лекция', hours: 2 })
       });
     }
-    fetchTemplatesAndRecords(); // Обновляем
+    fetchTemplatesAndRecords();
   };
 
   const copyDay = async (target) => {
@@ -195,15 +204,13 @@ function App() {
     if(!dayRecs.length) return alert("Нет уроков");
     for (const r of dayRecs) {
       await fetch('/api/schedule', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
+        method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ ...r, _id: undefined, group: target })
       });
     }
     alert(`Скопировано в ${target}`);
   };
 
-  // EXPORT FUNCTIONS
   const exportFullExcel = () => {
     const data = records.filter(r => r.group === activeGroup).map(r => ({
       "Дата": r.date, "Пара": r.lessonNumber, "Тип": r.type, "Предмет": r.subject, "Тема": r.topic, "Заметки": r.notes, "Часы": r.hours, "Явка": r.studentsPresent
@@ -220,9 +227,7 @@ function App() {
     const columns = {};
     let maxRows = 0;
     uniqueSubjects.forEach(subj => {
-        const lessons = groupRecs
-            .filter(r => r.subject === subj)
-            .sort((a, b) => a.date.localeCompare(b.date))
+        const lessons = groupRecs.filter(r => r.subject === subj).sort((a, b) => a.date.localeCompare(b.date))
             .map(r => `${r.date.split('-').reverse().join('.')} (${r.type} ${r.hours}ч)`);
         columns[subj] = lessons;
         if (lessons.length > maxRows) maxRows = lessons.length;
@@ -259,7 +264,7 @@ function App() {
   const themeClass = darkMode ? "bg-[#0f172a] text-white" : "bg-gray-50 text-slate-900";
   const cardClass = darkMode ? "bg-[#1e293b] border-slate-700 shadow-xl" : "bg-white border-gray-200 shadow-md";
 
-  if (loading) return <div className="h-screen flex items-center justify-center bg-[#0f172a] text-indigo-500 font-black italic text-2xl animate-pulse">EDU.LOG SYNCING...</div>;
+  if (loading) return <div className="h-screen flex items-center justify-center bg-[#0f172a] text-indigo-500 font-black italic text-2xl animate-pulse">EDU.LOG LOADING...</div>;
 
   return (
     <div className={`min-h-screen ${themeClass} font-sans pb-20 transition-all`}>
@@ -267,7 +272,7 @@ function App() {
         
         {/* HEADER */}
         <header className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 py-4 border-b border-indigo-500/20">
-          <h1 className="text-3xl font-black text-indigo-500 italic tracking-tighter">EDU.LOG <span className="text-[10px] not-italic text-slate-500">v20 Cloud</span></h1>
+          <h1 className="text-3xl font-black text-indigo-500 italic tracking-tighter">EDU.LOG <span className="text-[10px] not-italic text-slate-500">v21 Recovery</span></h1>
           <nav className="flex bg-slate-800/50 p-1 rounded-xl w-full md:w-auto overflow-x-auto no-scrollbar">
             {['schedule', 'dashboard', 'settings'].map(t => (
               <button key={t} onClick={() => setCurrentTab(t)} className={`flex-1 md:flex-none px-6 py-2.5 rounded-lg text-[10px] font-black uppercase whitespace-nowrap transition-all ${currentTab === t ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500'}`}>
@@ -443,12 +448,20 @@ function App() {
         {/* --- ОПЦИИ --- */}
         {currentTab === 'settings' && (
           <div className="grid lg:grid-cols-3 gap-6 animate-in slide-in-from-top-4 duration-500">
+            <div className={`${cardClass} p-6 rounded-[2rem] bg-indigo-900/20 border-2 border-indigo-500/30`}>
+              <h2 className="text-lg font-black uppercase mb-4 text-white italic">🛠 Администрирование</h2>
+              <button onClick={migrateLocalData} className="w-full bg-indigo-600 p-4 rounded-xl font-black uppercase text-xs shadow-lg hover:scale-105 transition-transform flex items-center justify-center gap-2">
+                 🔄 Восстановить старые данные в Облако
+              </button>
+              <p className="text-[10px] opacity-50 mt-2 text-center">Нажми 1 раз, чтобы перенести группы с этого устройства на сервер.</p>
+            </div>
+
             <div className={`${cardClass} p-6 rounded-[2rem]`}>
-              <h2 className="text-lg font-black uppercase mb-4 text-indigo-400 italic">Группы</h2>
+              <h2 className="text-lg font-black uppercase mb-4 text-indigo-400 italic">Группы (Облако)</h2>
               <div className="space-y-3 mb-4">
                 <input className="w-full bg-[#0f172a] border border-slate-700 p-3 rounded-xl text-xs" placeholder="Имя группы" value={newGroup.name} onChange={e => setNewGroup({...newGroup, name:e.target.value})} />
                 <input type="number" className="w-full bg-[#0f172a] border border-slate-700 p-3 rounded-xl text-xs" placeholder="Всего студентов" value={newGroup.total} onChange={e => setNewGroup({...newGroup, total:e.target.value})} />
-                <button onClick={addGroup} className="w-full bg-indigo-600 p-3 rounded-xl font-black uppercase text-xs">Добавить</button>
+                <button onClick={addGroup} className="w-full bg-indigo-600 p-3 rounded-xl font-black uppercase text-xs">Добавить в Облако</button>
               </div>
               <div className="space-y-2">
                 {groups.map(g => (
@@ -461,41 +474,17 @@ function App() {
             </div>
 
             <div className={`${cardClass} p-6 rounded-[2rem]`}>
-              <h2 className="text-lg font-black uppercase mb-4 text-emerald-400 italic">Библиотека</h2>
+              <h2 className="text-lg font-black uppercase mb-4 text-emerald-400 italic">Библиотека (Облако)</h2>
               <div className="space-y-3 mb-4">
                 <input className="w-full bg-[#0f172a] border border-slate-700 p-3 rounded-xl text-xs" placeholder="Предмет" value={newSubj.name} onChange={e => setNewSubj({...newSubj, name:e.target.value})} />
                 <select className="w-full bg-[#0f172a] border border-slate-700 p-3 rounded-xl text-xs" value={newSubj.target} onChange={e => setNewSubj({...newSubj, target:e.target.value})}>
                   <option value="all">Для всех</option>
                   {groups.map(g => <option key={g.name} value={g.name}>{g.name}</option>)}
                 </select>
-                <button onClick={addSubject} className="w-full bg-emerald-600 p-3 rounded-xl font-black uppercase text-xs">В библиотеку</button>
+                <button onClick={addSubject} className="w-full bg-emerald-600 p-3 rounded-xl font-black uppercase text-xs">Добавить</button>
               </div>
               <div className="max-h-40 overflow-y-auto space-y-2 pr-1">
                 {subjects.map((s, i) => (<div key={i} className="flex justify-between p-2 bg-slate-900/40 rounded-lg text-[10px]"><span>{s.name} <span className="opacity-20">({s.targetGroup})</span></span><button onClick={() => deleteSubject(s.name)} className="text-red-500">✕</button></div>))}
-              </div>
-            </div>
-
-            <div className={`${cardClass} p-6 rounded-[2rem]`}>
-              <h2 className="text-lg font-black uppercase mb-4 text-amber-500 italic">План (4 пары)</h2>
-              <div className="space-y-4 max-h-[400px] overflow-y-auto pr-1">
-                {[1,2,3,4,5,6].map(d => (
-                  <div key={d} className="p-3 bg-slate-900/40 rounded-2xl border border-white/5 mb-2">
-                    <div className="text-[10px] font-black opacity-40 mb-2 uppercase tracking-widest">{['','ПН','ВТ','СР','ЧТ','ПТ','СБ'][d]}</div>
-                    <div className="grid grid-cols-2 gap-2">
-                      {[1,2,3,4].map(l => {
-                        const t = templates.find(x => x.dayOfWeek === d && x.lessonNumber === l);
-                        return (
-                          <select key={l} className="bg-slate-800 p-1 rounded border border-slate-700 text-[9px]" value={t?.subject || ""} onChange={(e) => {
-                            fetch('/api/templates', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ group: activeGroup, dayOfWeek: d, lessonNumber: l, subject: e.target.value }) }).then(() => fetchTemplatesAndRecords());
-                          }}>
-                            <option value="">Пара {l}</option>
-                            {subjects.filter(s => s.targetGroup === 'all' || s.targetGroup === activeGroup).map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
-                          </select>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           </div>
